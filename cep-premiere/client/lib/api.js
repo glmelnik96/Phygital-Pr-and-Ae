@@ -44,6 +44,11 @@ export function createApi({ fetch, baseUrl, getAuthHeaders }) {
   return {
     getHealth: () => request('/health'),
     getBalance: () => request('/account/balance'),
+    // POST /auth/recon — стартует headed Playwright login в фоне. Возвращает
+    // {started:true,...} сразу; готовность определяем по /health
+    // (session_ok=true, jwt_ttl_sec>0). 409 = recon уже идёт — это не ошибка
+    // для UI, кнопка просто остаётся в "logging in…" состоянии.
+    startRecon: () => request('/auth/recon', { method: 'POST' }),
     listVideoNodes: () => request('/nodes/video'),
     listNodes: () => request('/nodes'),
     uploadAsset: async ({ blob, filename }) => {

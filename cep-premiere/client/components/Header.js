@@ -1,5 +1,6 @@
 import { html } from '../lib/html.js';
 import { useEffect, useState } from '../vendor/preact-hooks.module.js';
+import { toast } from '../lib/toast.js';
 
 // Format credit balance into a compact, glance-friendly string.
 // 0..999 → "734", 1k..999k → "12.3k", 1m+ → "1.2m".
@@ -56,6 +57,34 @@ export function Header({ health, api }) {
     bal.value != null ? `Phygital+ credits — refreshes every 30s` :
     'Balance — not available (sidecar offline?)';
 
+  // Sign-in CTA. Видна только когда sidecar отвечает но session невалидна
+  // (no_session). Auto-сбрасываем "loggingIn" когда health становится online —
+  // recon в фоне завершился успешно, окно браузера закрылось, /health увидел
+  // свежий JWT. При оффлайне sidecar'а — кнопка скрыта (нечего спрашивать,
+  // запрос всё равно упадёт с network error).
+  const [loggingIn, setLoggingIn] = useState(false);
+  useEffect(() => {
+    if (health.status === 'online' && loggingIn) setLoggingIn(false);
+  }, [health.status]);
+
+  async function onSignIn() {
+    if (loggingIn) return;
+    setLoggingIn(true);
+    try {
+      await api.startRecon();
+      toast.success('Opening browser to sign in to Phygital+…');
+    } catch (e) {
+      // 409 = recon уже идёт. Это не ошибка — оставляем loggingIn=true и ждём.
+      if (e && e.status === 409) {
+        toast.success('Sign-in already in progress — finish in the open browser');
+        return;
+      }
+      setLoggingIn(false);
+      const msg = (e && (e.body && e.body.detail || e.message)) || 'unknown';
+      toast.error('Sign-in start failed: ' + msg);
+    }
+  }
+
   return html`
     <div class="header">
       <div class="title">Phygital Studio</div>
@@ -65,6 +94,12 @@ export function Header({ health, api }) {
           <span class="balance-icon">◆</span>
           <span class=${`balance-value${bal.loading ? ' loading' : ''}${bal.error ? ' err' : ''}`}>${balLabel}</span>
         </div>
+      ` : null}
+      ${health.status === 'no_session' ? html`
+        <button class="signin-btn" onClick=${onSignIn} disabled=${loggingIn}
+          title=${loggingIn ? 'Browser opened — complete sign-in there' : 'Sign in to Phygital+ via browser'}>
+          ${loggingIn ? 'Signing in…' : 'Sign in'}
+        </button>
       ` : null}
       <div class=${cls} title=${`Sidecar: ${label}`}><span class="dot"></span>${label}</div>
     </div>

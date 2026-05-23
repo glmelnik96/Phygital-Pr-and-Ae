@@ -735,59 +735,81 @@ function _binByName(name) {
   return app.project.rootItem.createBin(name);
 }
 
-// Pr's native importFiles ломается на путях с non-ASCII (Cyrillic, иероглифы,
-// и т.п.) тем же образом что и QE DOM — выдаёт "Unsupported format or damaged
-// file" для валидного PNG/JPG/MP4, лежащего в C:\Users\<Кириллица>\... Файл
-// технически валиден (CEP-панель его рендерит), но Pr-импортёр на MBCS-слое
-// не открывает дескриптор.
-//
-// Решение: staging. Копируем в гарантированно ASCII-путь и импортим уже его.
-// Оригинал не трогаем — он остаётся для downloads history.
-function _asciiStageDir() {
-  var d = _isWin() ? 'C:\\ProgramData\\PhygitalStudio\\imports' : '/tmp/PhygitalStudio_imports';
-  try {
-    var f = new Folder(d);
-    if (!f.exists) f.create();
-    if (f.exists) return _nativePath(d);
-  } catch (e) {}
-  return null;
-}
+// NB: ранее тут был ASCII-staging (File.copy кириллических путей в ProgramData).
+// Удалён в пользу JS-side sniff'а в saveBlobToDisk: на Windows ExtendScript
+// File.copy в бинарном режиме на кириллическом ИСТОЧНИКЕ молча портил байты
+// (возвращал true, размер > 0, но содержимое битое), и Pr отбивал
+// "Unsupported format or damaged file". При правильном расширении (выставленном
+// по magic-байтам на JS-стороне) Pr.importFiles прекрасно ест кириллические
+// пути напрямую — staging оказался не нужен.
 
-function _asciiStage(srcPath) {
-  if (!srcPath) return srcPath;
-  if (_isAscii(srcPath)) return srcPath;        // путь уже чистый — не трогаем
-  var stage = _asciiStageDir();
-  if (!stage) return srcPath;
-  try {
-    var ext = '';
-    var dot = srcPath.lastIndexOf('.');
-    if (dot >= 0 && dot > srcPath.length - 8) ext = srcPath.substring(dot);
-    var dest = _nativePath(stage + _nativeSep() + 'pi_' + (new Date().getTime()) + '_' + Math.floor(Math.random() * 1e6) + ext);
-    var srcF = new File(srcPath);
-    if (!srcF.exists) return srcPath;
-    if (srcF.copy(dest)) {
-      var df = new File(dest);
-      if (df.exists && df.length > 0) return dest;
+// Pr's app.project.importFiles is dispatched on the main thread but the actual
+// ingest happens asynchronously: the call returns BEFORE the new ProjectItem
+// shows up in bin.children. На быстрых машинах задержка ~50-200ms, на медленных
+// (особенно при первом импорте PNG в свежем проекте) — до 2-3 секунд. Поэтому
+// проверка `bin.children.numItems > before` сразу после вызова даёт ложное
+// "no new item" в ~30% случаев. Решение: poll'им с $.sleep до 8 секунд.
+//
+// Дополнительно: на части билдов Pr игнорирует bin-arg и кладёт импорт в
+// rootItem. Поэтому при отсутствии новинки в нашем бине идём по всему дереву
+// и ищем ProjectItem чей getMediaPath равен staged-пути.
+function _findImportedByPath(targetPath) {
+  // Сравниваем case-insensitive по нормализованным separator'ам.
+  var needle = String(targetPath || '').toLowerCase().replace(/\//g, '\\');
+  var stack = [app.project.rootItem];
+  while (stack.length) {
+    var n = stack.pop();
+    for (var i = 0; i < n.children.numItems; i++) {
+      var c = n.children[i];
+      try {
+        if (c.getMediaPath) {
+          var p = String(c.getMediaPath() || '').toLowerCase().replace(/\//g, '\\');
+          if (p && p === needle) return { item: c, parent: n };
+        }
+      } catch (e) {}
+      if (c.type === 2 /* bin */) stack.push(c);
     }
-  } catch (e) {}
-  return srcPath;
+  }
+  return null;
 }
 
 function importToBin(path) {
   try {
     var bin = _binByName('PhygitalStudio');
     var before = bin.children.numItems;
-    var staged = _asciiStage(path);
-    app.project.importFiles([staged], true, bin, false);
-    if (bin.children.numItems > before) {
-      var pi = bin.children[bin.children.numItems - 1];
+    app.project.importFiles([path], true, bin, false);
+
+    // importFiles asynchronous-ish: возвращается до того как ProjectItem
+    // появится в bin.children. Poll'им до 8 секунд (шаг 150ms), параллельно
+    // ищем по всему дереву на случай если Pr игнорирует bin-arg и кладёт
+    // в root.
+    var deadline = (new Date().getTime()) + 8000;
+    var pi = null;
+    var foundIn = null;
+    while ((new Date().getTime()) < deadline) {
+      if (bin.children.numItems > before) {
+        pi = bin.children[bin.children.numItems - 1];
+        foundIn = 'PhygitalStudio';
+        break;
+      }
+      var hit = _findImportedByPath(path);
+      if (hit) {
+        pi = hit.item;
+        foundIn = String(hit.parent.name || 'root');
+        break;
+      }
+      $.sleep(150);
+    }
+
+    if (pi) {
       return _ok({
         projectItemId: String(pi.nodeId),
-        binName: 'PhygitalStudio',
-        staged: staged !== path ? staged : null,
+        binName: foundIn || 'PhygitalStudio',
       });
     }
-    return _err('import_failed', 'no new item; original=' + path + (staged !== path ? ' staged=' + staged : ''));
+    return _err('import_failed',
+      'no new item after 8s poll; path=' + path +
+      ' bin_before=' + before + ' bin_after=' + bin.children.numItems);
   } catch (e) { return _err('import_failed', String(e) + ' | path=' + path); }
 }
 
