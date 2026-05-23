@@ -196,6 +196,16 @@ class PhygitalClient:
         resp = await self.api_post("/api/v2/nodes/get_credits_price", json=payload)
         return resp.json()
 
+    async def get_credits_info(self) -> dict[str, Any]:
+        """GET /api/v2/team/credits_info → {members: [{credits_balance, ...}, ...]}.
+
+        Endpoint reverse-engineered via browser HAR capture
+        (sidecar/recon-captures/20260521-133657/phygital.har).
+        Returns team-wide member balances; caller picks the active user.
+        """
+        resp = await self.api_get("/api/v2/team/credits_info")
+        return resp.json()
+
     async def upload_file(self, path: str | "Path", *, field_name: str = "fileobject") -> int:
         """POST /api/v2/storage-object/storage-object (multipart) → file_obj_id.
 

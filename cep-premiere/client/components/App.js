@@ -123,7 +123,7 @@ export function App({ store, api }) {
 
   return html`
     <${ToastStack} />
-    <${Header} health=${snap.health} />
+    <${Header} health=${snap.health} api=${api} />
     <${Tabs} active=${tab} onChange=${setTab} tabs=${[
       { id: 'generate', label: 'Generate' },
       { id: 'history', label: 'History' },
@@ -134,7 +134,7 @@ export function App({ store, api }) {
             ? html`<${GenerateTab} snap=${snap} actions=${actions} api=${api} store=${store}
                 onSubmitted=${() => setTab('history')} />`
             : html`<div class="placeholder">Loading...</div>`)
-        : html`<${HistoryTab} snap=${snap} api=${api}
+        : html`<${HistoryTab} snap=${snap} api=${api} videoNodes=${snap.videoNodes}
             onAction=${async (action, job) => {
               if (action === 'delete') {
                 if (job.resultBlobUrl) {

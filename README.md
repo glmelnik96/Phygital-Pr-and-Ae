@@ -15,6 +15,9 @@ Flux, GPT Image и др.) прямо из интерфейса Adobe и авто
 
 | Документ | О чём |
 |---|---|
+| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Как работает целиком: компоненты, e2e пайплайны, persistence, подводные камни |
+| [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) | Пошаговая установка на Windows + траблшут |
+| [docs/INSTALL_MACOS.md](docs/INSTALL_MACOS.md) | Пошаговая установка на macOS + траблшут |
 | [docs/AUDIT.md](docs/AUDIT.md) | Исходный аудит: что переиспользуется, реалистичность, риски |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Sidecar + CEP, потоки данных, контракты HTTP |
 | [docs/AUTH.md](docs/AUTH.md) | Бутстрап Phygital-сессии через Playwright recon |

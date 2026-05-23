@@ -36,6 +36,7 @@ export function createApi({ fetch, baseUrl }) {
 
   return {
     getHealth: () => request('/health'),
+    getBalance: () => request('/account/balance'),
     listVideoNodes: () => request('/nodes/video'),
     listNodes: () => request('/nodes'),
     uploadAsset: async ({ blob, filename }) => {

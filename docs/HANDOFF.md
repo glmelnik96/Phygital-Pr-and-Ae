@@ -15,8 +15,11 @@
 
 1. `README.md` корня — карта проекта и связанных репозиториев.
 2. Этот файл (HANDOFF.md).
-3. `docs/ARCHITECTURE.md` — контракт sidecar ↔ панели, ExtendScript-вызовы.
-4. `docs/ROADMAP.md` — определить текущую фазу.
+3. `docs/PROJECT_OVERVIEW.md` — как всё работает целиком: компоненты,
+   e2e-пайплайны (image и video), persistence, autostart, подводные камни.
+4. `docs/ARCHITECTURE.md` — контракт sidecar ↔ панели, ExtendScript-вызовы
+   (короче и старее, чем OVERVIEW; OVERVIEW в приоритете).
+5. `docs/ROADMAP.md` — определить текущую фазу.
 5. Профильные файлы фазы:
    - **sidecar**: `sidecar/README.md`, `sidecar/app/main.py`.
    - **Pr-панель**: `cep-premiere/README.md`, `cep-premiere/CSXS/manifest.xml`,

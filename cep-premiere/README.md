@@ -61,7 +61,7 @@ Run the Playwright recon flow once to capture a Phygital+ session:
 
 ```powershell
 cd sidecar
-python scripts/auth_recon.py
+python -m scripts.auth_recon
 ```
 
 After this the session lives in `%LOCALAPPDATA%\PhygitalStudio\session.json`

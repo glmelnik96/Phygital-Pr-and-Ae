@@ -285,6 +285,7 @@ export function GenerateTab({ snap, actions, api, store, onSubmitted }) {
       <${ModelPicker} nodes=${allNodes} value=${draft.model_id}
         onChange=${id => actions.setModel(id, { videoNodes })} />
       <${ScenarioPicker} scenarios=${scenarios} value=${draft.scenario}
+        requiredSlots=${slots}
         onChange=${s => actions.setScenario(s, { videoNodes })} />
       <${PromptInput} value=${draft.prompt} onChange=${actions.setPrompt} />
       <${SlotList} slots=${slots} values=${draft.slots}

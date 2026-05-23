@@ -2,13 +2,20 @@
 // if it isn't already reachable on 127.0.0.1:8765.
 //
 // Strategy:
-//   1. Probe /health with a short timeout. If alive, no-op.
-//   2. Otherwise, resolve the sidecar directory by walking up from the
+//   1. On every panel mount, look for a PID file we wrote on the previous
+//      spawn. If the process is still around, kill it — that's what
+//      "sidecar reloads when the panel reloads" means in practice (Ctrl+R
+//      in the CEP debug DevTools wipes module state, so we can't rely on
+//      `spawnedPid` alone). Wait briefly for the port to free up.
+//   2. If a sidecar we didn't spawn is now answering /health (user is
+//      running a dev sidecar in a terminal), respect it and no-op.
+//   3. Otherwise, resolve the sidecar directory by walking up from the
 //      extension's real path (realpathSync — the extension is loaded via
 //      symlink from Adobe's per-user CEP extensions folder).
-//   3. Spawn `<python> -m app.main` detached, headless. Try a Python on PATH
-//      first, fall back to known install locations.
-//   4. Poll /health up to ~15s waiting for it to come up.
+//   4. Spawn `<python> -m app.main` detached, headless, write the pid to
+//      our marker file. Try a Python on PATH first, fall back to known
+//      install locations.
+//   5. Poll /health up to ~15s waiting for it to come up.
 //
 // Cross-platform notes:
 //   - Windows: pythonw.exe (no console window). Stop = taskkill /T /F because
@@ -39,11 +46,69 @@ const PYTHON_CANDIDATES = IS_WIN
       '/usr/bin/python3',
     ];
 
-// PID of the sidecar process WE spawned (null if /health was already alive at
-// panel boot — in that case the sidecar was started elsewhere and we leave it
-// alone on Pr quit). Tracked in module scope so stopSpawnedSidecar() can find
-// it from the beforeunload / ApplicationBeforeQuit handlers in panel.js.
+// PID of the sidecar process WE spawned (null if /health was already alive
+// after the pidfile-cleanup pass — in that case the sidecar is user-managed
+// and we leave it alone on Pr quit). Tracked in module scope so
+// stopSpawnedSidecar() can find it from the beforeunload /
+// ApplicationBeforeQuit handlers in panel.js.
 let spawnedPid = null;
+
+// Marker file path: os.tmpdir() works on Win + macOS and survives Pr crashes
+// (so the next panel mount still cleans up an orphan from a hard exit).
+const PIDFILE = (() => {
+  if (typeof require !== 'function') return null;
+  try {
+    const path = require('path');
+    const os = require('os');
+    return path.join(os.tmpdir(), 'phygital-sidecar.pid');
+  } catch (_) { return null; }
+})();
+
+function readPidFile() {
+  if (!PIDFILE || typeof require !== 'function') return null;
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(PIDFILE)) return null;
+    const n = parseInt(fs.readFileSync(PIDFILE, 'utf8').trim(), 10);
+    return Number.isFinite(n) ? n : null;
+  } catch (_) { return null; }
+}
+
+function writePidFile(pid) {
+  if (!PIDFILE || typeof require !== 'function') return;
+  try {
+    const fs = require('fs');
+    fs.writeFileSync(PIDFILE, String(pid), 'utf8');
+  } catch (_) {}
+}
+
+function clearPidFile() {
+  if (!PIDFILE || typeof require !== 'function') return;
+  try {
+    const fs = require('fs');
+    if (fs.existsSync(PIDFILE)) fs.unlinkSync(PIDFILE);
+  } catch (_) {}
+}
+
+function killPid(pid) {
+  if (!pid || typeof require !== 'function') return;
+  try {
+    if (IS_WIN) {
+      // /T = tree, /F = force. Required because uvicorn forks workers.
+      const { execFileSync } = require('child_process');
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      // detached:true made the child a process-group leader, so its pgid == pid.
+      try { process.kill(-pid, 'SIGTERM'); }
+      catch (_) { try { process.kill(pid, 'SIGTERM'); } catch (_) {} }
+    }
+  } catch (_) {
+    // Already dead, or signal denied — nothing we can do from here.
+  }
+}
 
 async function isAlive(timeoutMs = 1500) {
   try {
@@ -95,6 +160,7 @@ function spawnSidecarOnce(sidecarDir) {
       child.unref();
       if (!failed) {
         spawnedPid = child.pid;
+        writePidFile(child.pid);
         return true;
       }
     } catch (_) {
@@ -108,34 +174,34 @@ function spawnSidecarOnce(sidecarDir) {
 // panel.js on beforeunload + CSXS ApplicationBeforeQuit.
 export function stopSpawnedSidecar() {
   if (spawnedPid == null) return false;
-  if (typeof require !== 'function') return false;
-  try {
-    if (IS_WIN) {
-      // /T = tree, /F = force. Required because uvicorn forks workers.
-      const { execFileSync } = require('child_process');
-      execFileSync('taskkill', ['/PID', String(spawnedPid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-    } else {
-      // detached:true made the child a process-group leader, so its pgid == pid.
-      // Signal the negative pgid → SIGTERM goes to the whole group (parent +
-      // uvicorn workers). Fall back to the bare pid if pgid kill fails.
-      try { process.kill(-spawnedPid, 'SIGTERM'); }
-      catch (_) { try { process.kill(spawnedPid, 'SIGTERM'); } catch (_) {} }
-    }
-  } catch (_) {
-    // Already dead, or signal denied — nothing we can do from here.
-  }
+  killPid(spawnedPid);
+  clearPidFile();
   spawnedPid = null;
   return true;
 }
 
 export async function ensureSidecar({ pollTimeoutMs = 15000, pollIntervalMs = 500 } = {}) {
+  // Step 1 — auto-reload semantics: kill any sidecar a previous panel mount
+  // spawned, so the new code (incl. new routes / NODE_PARAM changes) actually
+  // takes effect on Ctrl+R / panel close-reopen. Read pid from disk because
+  // module-scope `spawnedPid` is lost across panel reloads.
+  const prevPid = readPidFile();
+  if (prevPid != null) {
+    killPid(prevPid);
+    clearPidFile();
+    // Brief grace so the OS releases :8765 and uvicorn workers actually exit.
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Step 2 — if /health is *still* answering after the cleanup pass, someone
+  // else (user-run dev terminal) owns the sidecar. Respect it and don't spawn.
   if (await isAlive()) return { ok: true, spawned: false };
+
+  // Step 3 — spawn fresh.
   const sidecarDir = resolveSidecarDir();
   if (!sidecarDir) return { ok: false, reason: 'cep-node-unavailable' };
   if (!spawnSidecarOnce(sidecarDir)) return { ok: false, reason: 'spawn-failed' };
+
   const deadline = Date.now() + pollTimeoutMs;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, pollIntervalMs));

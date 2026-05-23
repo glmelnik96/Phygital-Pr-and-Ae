@@ -31,6 +31,7 @@ def build_app() -> FastAPI:
     from app.routers.jobs import router as jobs_router
     from app.routers.assets import router as assets_router
     from app.routers.clips import router as clips_router
+    from app.routers.account import router as account_router
     from app.services.session_bootstrap import SessionBootstrap
     from app.services.task_registry import TaskRegistry
     from app.services.job_runner import JobRunner
@@ -102,6 +103,7 @@ def build_app() -> FastAPI:
     app.include_router(jobs_router)
     app.include_router(assets_router)
     app.include_router(clips_router)
+    app.include_router(account_router)
     return app
 
 

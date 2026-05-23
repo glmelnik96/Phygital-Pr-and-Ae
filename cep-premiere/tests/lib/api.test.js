@@ -104,6 +104,42 @@ describe('api job endpoints', () => {
   });
 });
 
+describe('api.getBalance', () => {
+  it('GETs /account/balance and returns body', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      JSON.stringify({ ok: true, balance: 188505, currency: 'credits', is_infinity: false }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    ));
+    const api = createApi({ fetch: fm, baseUrl: 'http://h' });
+    const out = await api.getBalance();
+    expect(out.balance).toBe(188505);
+    expect(fm.mock.calls[0][0]).toBe('http://h/account/balance');
+  });
+
+  it('surfaces 503 session_not_ready as ApiError kind=http status=503', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      JSON.stringify({ detail: 'session_not_ready' }),
+      { status: 503, headers: { 'content-type': 'application/json' } }
+    ));
+    const api = createApi({ fetch: fm, baseUrl: 'http://h' });
+    await expect(api.getBalance()).rejects.toMatchObject({ kind: 'http', status: 503 });
+  });
+});
+
+describe('api.extractFrame', () => {
+  it('POSTs JSON with source_path+at_sec', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      JSON.stringify({ path: '/tmp/x.jpg' }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    ));
+    const api = createApi({ fetch: fm, baseUrl: 'http://h' });
+    const out = await api.extractFrame({ source_path: '/foo.mp4', at_sec: 1.5 });
+    expect(out.path).toBe('/tmp/x.jpg');
+    const body = JSON.parse(fm.mock.calls[0][1].body);
+    expect(body).toEqual({ source_path: '/foo.mp4', at_sec: 1.5 });
+  });
+});
+
 describe('api.previewCost', () => {
   it('POSTs JSON with node_id+params, init_files=empty', async () => {
     const fm = vi.fn().mockResolvedValueOnce(new Response(
