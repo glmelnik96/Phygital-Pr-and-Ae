@@ -37,7 +37,7 @@ def test_post_jobs_rejects_unknown_node(client):
 def test_get_jobs_returns_empty(client):
     r = client.get("/jobs")
     assert r.status_code == 200
-    assert r.json() == {"jobs": []}
+    assert r.json() == {"jobs": [], "next_cursor": None}
 
 
 def test_get_jobs_after_create(client):

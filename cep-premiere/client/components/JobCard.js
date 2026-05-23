@@ -2,6 +2,7 @@ import { html } from '../lib/html.js';
 import { useState, useEffect, useRef } from '../vendor/preact-hooks.module.js';
 import { fmtDuration, jobAgeMs } from '../lib/format.js';
 import { NANO_BANANA_META } from '../lib/slot_schema.js';
+import { localPathToFileUrl, isRenderableImagePath } from '../lib/disk_save.js';
 
 const STATUS_CLS = {
   queued: 'q', running: 'r', completed: 'ok', failed: 'fail', canceled: 'fail',
@@ -65,9 +66,17 @@ export function JobCard({ job, videoNodes, onAction }) {
         ${job.status}${job.status === 'running' ? ` · ${prog}%` : ''}
       </div>
       ${job.error ? html`<div class="job-error" title=${job.error}>${job.error}</div>` : null}
-      ${job.resultBlobUrl
-        ? html`<img class="job-thumb" src=${job.resultBlobUrl} alt="" />`
-        : null}
+      ${(() => {
+        // Приоритет blob > file://. После reload blob мёртв, но localPath из
+        // persisted кэша → file://. Video-форматы не пытаемся отрендерить.
+        if (job.resultBlobUrl) {
+          return html`<img class="job-thumb" src=${job.resultBlobUrl} alt="" />`;
+        }
+        if (job.localPath && isRenderableImagePath(job.localPath)) {
+          return html`<img class="job-thumb" src=${localPathToFileUrl(job.localPath)} alt="" />`;
+        }
+        return null;
+      })()}
       <div class="job-actions">
         ${isDone ? html`
           <button class="primary-soft" onClick=${() => onAction('show', job)}>Show in bin</button>

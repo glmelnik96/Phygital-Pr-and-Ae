@@ -57,6 +57,7 @@ def build_app() -> FastAPI:
     from app.services.downloader import download_urls
     from app.services.sidecar_auth import SidecarAuthMiddleware, load_or_create_token
     from app.services.log_redaction import install_redaction, register_secret
+    from app.services.idempotency import IdempotencyStore
     from app.phygital_client.api import PhygitalClient
     from app.workflows import NODES
 
@@ -119,6 +120,7 @@ def build_app() -> FastAPI:
 
         _app.state.settings = settings
         _app.state.sidecar_token = sidecar_token
+        _app.state.idempotency_store = IdempotencyStore()
 
         logger.info(f"Sidecar started: http://{settings.host}:{settings.port}")
         yield
@@ -138,13 +140,16 @@ def build_app() -> FastAPI:
     # чтобы перехватывать запросы первым. Starlette middleware-стек работает
     # как LIFO: добавленный последним выполняется первым на входе.
     app.add_middleware(SidecarAuthMiddleware, token=sidecar_token)
+    # /health всегда без префикса — autostart pidfile-watcher и панель опрашивают
+    # его как probe сразу при старте процесса (если переедет под /v1 — потребуется
+    # одновременный апдейт panel + autostart, рискованно).
     app.include_router(health_router)
-    app.include_router(auth_router)
-    app.include_router(nodes_router)
-    app.include_router(jobs_router)
-    app.include_router(assets_router)
-    app.include_router(clips_router)
-    app.include_router(account_router)
+    # M11: бизнес-роуты доступны и без префикса (legacy для текущей панели),
+    # и под /v1/ (для миграции внешних клиентов). Эти два include дают одинаковые
+    # router-объекты на разных prefix'ах — состояние общее, тестируется параллельно.
+    for r in (auth_router, nodes_router, jobs_router, assets_router, clips_router, account_router):
+        app.include_router(r)
+        app.include_router(r, prefix="/v1")
     return app
 
 

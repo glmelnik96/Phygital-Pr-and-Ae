@@ -2,6 +2,10 @@
 
 Premiere Pro 2024+ (CSXS 11/12), Python 3.10+, ffmpeg.
 
+**Текущая версия: V1.1** ([CHANGELOG](../CHANGELOG.md)) — установщик идемпотентен,
+обновление с V1.0 = `git pull && ./scripts/install_mac.sh` (skip-recon при
+наличии валидной сессии).
+
 Полная архитектура — [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md).
 Подводные камни macOS — там же §11.3.
 

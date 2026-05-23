@@ -11,6 +11,9 @@
 истины по архитектуре — [ARCHITECTURE.md](ARCHITECTURE.md), по auth — [AUTH.md](AUTH.md),
 исходный аудит-обоснование — [AUDIT.md](AUDIT.md), план — [ROADMAP.md](ROADMAP.md).
 
+**Текущая версия: V1.1** (2026-05-23). История — [`CHANGELOG.md`](../CHANGELOG.md).
+Открытые вопросы для следующего аудита — [`NEXT_AUDIT.md`](NEXT_AUDIT.md).
+
 ## Что прочитать в новом чате (в порядке приоритета)
 
 1. `README.md` корня — карта проекта и связанных репозиториев.

@@ -22,6 +22,9 @@ export const DEFAULT_STATE = {
   jobs: [],
   toasts: [],
   cost: { key: null, price: null, loading: false, error: null },
+  // Balance в store (а не в локальном state Header'а) — нужно CostBar'у/
+  // SubmitButton'у для сравнения price vs balance до Generate.
+  balance: { value: null, infinity: false, error: null, loading: false },
 };
 
 // Cost cache: key = JSON.stringify({model_id, scenario, params, prompt})
@@ -141,11 +144,46 @@ export function createUploadActions(store) {
   };
 }
 
+// Persistent cache of per-job artefacts (localPath, projectItemId). Sidecar
+// /jobs API не знает про disk-path/Pr-binding — после перезагрузки панели
+// миниатюра пропадала и "Show in bin" заново качал/импортировал.
+// Храним только лёгкие метаданные, blob не дублируем (он уже на диске).
+const JOB_META_KEY = 'phygital-studio.jobMeta.v1';
+
+export function loadJobMetaCache() {
+  try { return JSON.parse(localStorage.getItem(JOB_META_KEY) || '{}') || {}; }
+  catch { return {}; }
+}
+export function saveJobMetaCache(cache) {
+  try { localStorage.setItem(JOB_META_KEY, JSON.stringify(cache)); } catch {}
+}
+export function patchJobMetaCache(jobId, patch) {
+  const c = loadJobMetaCache();
+  c[jobId] = { ...(c[jobId] || {}), ...patch };
+  saveJobMetaCache(c);
+}
+export function dropJobMetaCache(jobId) {
+  const c = loadJobMetaCache();
+  if (jobId in c) { delete c[jobId]; saveJobMetaCache(c); }
+}
+// Sweep entries for jobs no longer present in the live list — keeps localStorage bounded.
+export function reconcileJobMetaCache(remoteJobIds) {
+  const c = loadJobMetaCache();
+  const keep = new Set(remoteJobIds);
+  let dirty = false;
+  for (const k of Object.keys(c)) if (!keep.has(k)) { delete c[k]; dirty = true; }
+  if (dirty) saveJobMetaCache(c);
+}
+
 export function mergeJobs(prev, remote) {
   const prevById = new Map((prev || []).map(j => [j.job_id, j]));
+  const meta = loadJobMetaCache();
   const out = remote.map(rj => {
     const local = prevById.get(rj.job_id);
-    return local ? { ...local, ...rj } : { ...rj };
+    const persisted = meta[rj.job_id] || {};
+    // priority: server fields > in-memory local enrichments > persisted cache.
+    // persisted re-hydrates after panel reload (когда prevById пуст).
+    return { ...persisted, ...(local || {}), ...rj };
   });
   return out;
 }

@@ -4,8 +4,9 @@ import { Header } from './Header.js';
 import { Tabs } from './Tabs.js';
 import { GenerateTab } from './GenerateTab.js';
 import { HistoryTab } from './HistoryTab.js';
+import { QueueWidget } from './QueueWidget.js';
 import { ToastStack } from './Toast.js';
-import { createDraftActions, makeInitialDraft, loadDraftFromStorage, mergeJobs, diffJobs } from '../lib/state.js';
+import { createDraftActions, makeInitialDraft, loadDraftFromStorage, mergeJobs, diffJobs, patchJobMetaCache, dropJobMetaCache, reconcileJobMetaCache } from '../lib/state.js';
 import { saveBlobToDisk, mimeToExt } from '../lib/disk_save.js';
 import { hostQueued } from '../lib/host.js';
 import { toast } from '../lib/toast.js';
@@ -83,6 +84,8 @@ export function App({ store, api }) {
         const remote = r.jobs || [];
         const { completedNow } = diffJobs(cur, remote);
         store.set({ jobs: mergeJobs(cur, remote) });
+        // Сборка мусора в localStorage: чистим метаданные удалённых на сервере джобов.
+        try { reconcileJobMetaCache(remote.map(j => j.job_id)); } catch (_) {}
         // Auto-download + auto-import for completed ones we haven't processed yet
         for (const j of completedNow) {
           if (!j.result_paths || !j.result_paths.length) continue;
@@ -92,21 +95,29 @@ export function App({ store, api }) {
             const localPath = await saveBlobToDisk(blob, `${j.job_id}.${ext}`);
             const url = URL.createObjectURL(blob);
             const enriched = { resultBlobUrl: url, localPath };
-            // Try Pr import — keep blob even if Pr offline
+            // Try Pr import — keep blob even if Pr offline / import fails
             let imported = false;
+            let importErr = null;
             try {
               const rImp = await hostQueued('importToBin', localPath);
               enriched.projectItemId = rImp.projectItemId;
               imported = true;
-            } catch (_) { /* keep download even if Pr offline */ }
+            } catch (e) { importErr = e; }
             const s = store.get();
             store.set({
               jobs: s.jobs.map(x => x.job_id === j.job_id ? { ...x, ...enriched } : x),
             });
+            // Сохраняем сразу после успеха import — projectItemId опционален.
+            try {
+              patchJobMetaCache(j.job_id, {
+                localPath,
+                projectItemId: enriched.projectItemId || null,
+              });
+            } catch (_) {}
             if (imported) {
               toast.success('Imported ' + j.job_id);
             } else {
-              toast.warning('Imported but Pr offline');
+              toast.warning(_importFailMsg(importErr, localPath));
             }
           } catch (_) {
             toast.error(`Download failed for ${j.job_id}`);
@@ -123,7 +134,16 @@ export function App({ store, api }) {
 
   return html`
     <${ToastStack} />
-    <${Header} health=${snap.health} api=${api} />
+    <${Header} health=${snap.health} api=${api} store=${store} />
+    <${QueueWidget} jobs=${snap.jobs} videoNodes=${snap.videoNodes}
+      onCancel=${async (job) => {
+        if (job.resultBlobUrl) { try { URL.revokeObjectURL(job.resultBlobUrl); } catch (_) {} }
+        const s = store.get();
+        store.set({ jobs: (s.jobs || []).filter(j => j.job_id !== job.job_id) });
+        try { dropJobMetaCache(job.job_id); } catch (_) {}
+        try { await api.deleteJob(job.job_id); toast.success('Job canceled'); }
+        catch (e) { toast.error('Cancel failed: ' + (e.message || 'unknown')); }
+      }} />
     <${Tabs} active=${tab} onChange=${setTab} tabs=${[
       { id: 'generate', label: 'Generate' },
       { id: 'history', label: 'History' },
@@ -144,6 +164,7 @@ export function App({ store, api }) {
                 // until the next 2s poll tick.
                 const s = store.get();
                 store.set({ jobs: (s.jobs || []).filter(j => j.job_id !== job.job_id) });
+                try { dropJobMetaCache(job.job_id); } catch (_) {}
                 try { await api.deleteJob(job.job_id); }
                 catch (e) { toast.error('Delete failed: ' + (e.message || 'unknown')); }
               }
@@ -174,12 +195,12 @@ export function App({ store, api }) {
                       jobs: s.jobs.map(x => x.job_id === job.job_id
                         ? { ...x, projectItemId: pid, localPath: job.localPath } : x),
                     });
+                    try { patchJobMetaCache(job.job_id, { localPath: job.localPath, projectItemId: pid }); } catch (_) {}
                   }
                   const r = await hostQueued('revealInBin', pid);
                   toast.success(r.binName ? `Selected in bin "${r.binName}"` : 'Selected in project');
                 } catch (e) {
-                  const reason = (e.result && e.result.reason) || e.message || 'unknown';
-                  toast.error('Show in bin failed: ' + reason);
+                  toast.error('Show in bin failed: ' + _importFailReason(e, job.localPath));
                 }
               }
               if (action === 'retry') {
@@ -206,4 +227,25 @@ export function App({ store, api }) {
             }} />`}
     </div>
   `;
+}
+
+// Pr может тихо отвалиться на Cyrillic/non-ASCII пути (видели на importFiles
+// с MBCS-кодировкой). Если путь содержит non-ASCII — добавляем явный hint,
+// иначе показываем сырой reason от host.
+function _hasNonAscii(s) {
+  return !!s && /[^\x00-\x7F]/.test(String(s));
+}
+function _importFailReason(err, path) {
+  const raw = (err && err.result && err.result.reason) || (err && err.message) || 'unknown';
+  if (_hasNonAscii(path)) {
+    return raw + ' — path contains non-ASCII (' + path + '); try moving project/user folder to ASCII-only path';
+  }
+  return raw;
+}
+function _importFailMsg(err, path) {
+  if (!err) return 'Imported but Pr offline';
+  if (_hasNonAscii(path)) {
+    return 'Imported to disk but Pr import failed (non-ASCII path: ' + path + ')';
+  }
+  return 'Imported to disk but Pr import failed: ' + ((err.result && err.result.reason) || err.message || 'unknown');
 }

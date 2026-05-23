@@ -1,15 +1,17 @@
 """/jobs endpoints."""
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app import paths
+from app.services.idempotency import hash_request_body
 from app.services.task_registry import JobState
 from app.workflows import NODES
 
@@ -74,12 +76,36 @@ async def preview_cost(body: JobCreate, request: Request) -> dict:
 
 
 @router.post("/jobs")
-async def create_job(body: JobCreate, request: Request) -> dict:
+async def create_job(
+    body: JobCreate,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict:
     if body.node_id not in NODES:
         raise HTTPException(
             status_code=400,
             detail={"error": "unknown_node", "node_id": body.node_id},
         )
+
+    # M8: Idempotency-Key. Если клиент повторно шлёт запрос с тем же ключом и
+    # тем же телом — возвращаем закэшированный job_id (без повторной отправки в
+    # Phygital и без списания кредитов). Если тело другое — 422 conflict.
+    idem_store = getattr(request.app.state, "idempotency_store", None)
+    req_hash = None
+    if idempotency_key and idem_store is not None:
+        req_hash = hash_request_body(body.model_dump())
+        found = await idem_store.lookup(idempotency_key, req_hash)
+        if found is not None:
+            kind, cached = found
+            if kind == "hit":
+                return cached
+            # conflict
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "idempotency_conflict",
+                        "message": "Idempotency-Key reused with different request body"},
+            )
+
     # Опционально: проверка сессии. Можно вернуть 409 если нет сессии,
     # но многие panel могут submit'ить пока recon идёт — пусть try.
     reg = request.app.state.task_registry
@@ -96,14 +122,45 @@ async def create_job(body: JobCreate, request: Request) -> dict:
 
     job_id = await reg.create(node_id=body.node_id, params=params)
     runner.schedule(job_id)
-    return {"job_id": job_id}
+    response = {"job_id": job_id}
+
+    if idempotency_key and idem_store is not None and req_hash is not None:
+        await idem_store.store(idempotency_key, req_hash, 200, response)
+
+    return response
 
 
 @router.get("/jobs")
-async def list_jobs(request: Request, status: str | None = None, limit: int = 50) -> dict:
+async def list_jobs(
+    request: Request,
+    status: str | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> dict:
+    """List jobs sorted by created_at desc. Pagination via cursor (M9).
+
+    Cursor — это job_id последнего элемента предыдущей страницы. Клиент шлёт
+    cursor=null для первой страницы, затем передаёт `next_cursor` из ответа.
+    Если next_cursor отсутствует — страница последняя.
+    """
     reg = request.app.state.task_registry
-    items = reg.list(status=status, limit=limit)
-    return {"jobs": [_state_to_dict(s) for s in items]}
+    # registry.list возвращает уже отсортированные по created_at desc, без cursor —
+    # отдаём «окно» вручную чтобы next_cursor было точным.
+    all_items = reg.list(status=status, limit=None)
+    if cursor:
+        # Найти позицию cursor и взять элементы после неё. Если cursor не найден —
+        # клиент мог получить устаревший id (job удалён); возвращаем пустую страницу.
+        idx = next((i for i, s in enumerate(all_items) if s.job_id == cursor), None)
+        all_items = all_items[idx + 1:] if idx is not None else []
+    # +1 чтобы понять есть ли следующая страница без второго запроса.
+    window = all_items[: limit + 1] if limit else all_items
+    has_more = bool(limit) and len(window) > limit
+    page = window[:limit] if limit else window
+    next_cursor = page[-1].job_id if has_more and page else None
+    return {
+        "jobs": [_state_to_dict(s) for s in page],
+        "next_cursor": next_cursor,
+    }
 
 
 @router.get("/jobs/{job_id}")
@@ -114,44 +171,69 @@ async def get_job(job_id: str, request: Request) -> dict:
     return _state_to_dict(state)
 
 
-@router.get("/jobs/{job_id}/download")
-async def download_job(job_id: str, request: Request, index: int = 0):
-    state = request.app.state.task_registry.get(job_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail={"error": "unknown_job"})
+def _resolve_download(state: JobState, index: int) -> Path:
+    """Shared resolver: проверяет статус, индекс, traversal, существование файла.
+    Кидает HTTPException на любую ошибку. Возвращает canonical resolved path.
+    """
     if state.status != "completed" or not state.result_paths:
         raise HTTPException(status_code=409, detail={"error": "not_completed", "status": state.status})
     if index < 0 or index >= len(state.result_paths):
         raise HTTPException(status_code=400, detail={"error": "bad_index"})
 
-    # C4: result_paths приходит из downloader, но в jsonl записано и при
-    # restore() мы доверяем содержимому файла. Если jsonl как-либо испорчен
-    # (атакующий с локальным доступом отредактировал, или будущая sync с
-    # облака) — путь "../../etc/shadow" будет принят без проверки. Поэтому
-    # canonicalize и проверяем что физически лежит внутри downloads_dir.
     fpath = Path(state.result_paths[index])
     try:
         resolved = fpath.resolve(strict=False)
         root = paths.downloads_dir().resolve(strict=False)
     except OSError as e:
-        logger.warning(f"download_job {job_id}: path resolve failed: {e}")
+        logger.warning(f"download resolve failed for job={state.job_id}: {e}")
         raise HTTPException(status_code=410, detail={"error": "file_gone"})
 
     try:
-        # Path.is_relative_to добавлен в 3.9, sidecar требует 3.10+ (см. paths.ensure_dirs).
         if not resolved.is_relative_to(root):
             logger.error(
-                f"download_job {job_id}: path traversal blocked — "
+                f"download {state.job_id}: path traversal blocked — "
                 f"resolved={resolved} not under {root}"
             )
             raise HTTPException(status_code=403, detail={"error": "path_outside_downloads"})
     except (AttributeError, ValueError):
-        # Защитная ветка — на старых питонах или при сравнении путей на разных дисках
-        # is_relative_to кидает. Считаем такое подозрительным.
         raise HTTPException(status_code=403, detail={"error": "path_outside_downloads"})
 
     if not resolved.exists():
         raise HTTPException(status_code=410, detail={"error": "file_gone"})
+    return resolved
+
+
+@router.head("/jobs/{job_id}/download")
+async def head_download_job(job_id: str, request: Request, index: int = 0):
+    """M14: HEAD-вариант download — отдаёт только заголовки (Content-Type,
+    Content-Length, Last-Modified). Панель использует это для preflight'а
+    миниатюры без скачивания тела (например, чтобы проверить, что артефакт
+    существует и узнать MIME, прежде чем рендерить превью)."""
+    state = request.app.state.task_registry.get(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail={"error": "unknown_job"})
+    resolved = _resolve_download(state, index)
+    stat = resolved.stat()
+    mime, _ = mimetypes.guess_type(resolved.name)
+    headers = {
+        "Content-Type": mime or "application/octet-stream",
+        "Content-Length": str(stat.st_size),
+        # ISO 8601 не подходит для HTTP-Date — но frontend парсит просто как timestamp,
+        # FileResponse в GET тоже не шлёт строгий HTTP-Date. Достаточно epoch секунд.
+        "X-Last-Modified-Epoch": str(int(stat.st_mtime)),
+    }
+    return Response(status_code=200, headers=headers)
+
+
+@router.get("/jobs/{job_id}/download")
+async def download_job(job_id: str, request: Request, index: int = 0):
+    # C4: result_paths приходит из downloader, но в jsonl записано и при
+    # restore() мы доверяем содержимому файла. _resolve_download canonicalize'ит
+    # путь и проверяет что он внутри downloads_dir (см. _resolve_download).
+    state = request.app.state.task_registry.get(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail={"error": "unknown_job"})
+    resolved = _resolve_download(state, index)
     return FileResponse(resolved, filename=resolved.name)
 
 

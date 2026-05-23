@@ -63,3 +63,25 @@ export function mimeToExt(mime) {
   if (!mime) return 'bin';
   return MIME_EXT[mime.toLowerCase()] || 'bin';
 }
+
+// Convert a native disk path to a file:// URL that CEF can render in <img>.
+// Windows: 'C:\\Users\\Глеб\\...\\x.png' → 'file:///C:/Users/%D0%93.../x.png'.
+// encodeURI handles spaces and Cyrillic; we keep '/' and ':' intact.
+export function localPathToFileUrl(p) {
+  if (!p) return null;
+  const norm = String(p).replace(/\\/g, '/');
+  // encodeURI оставляет '/', ':', '?', '#', '&' — для пути этого достаточно,
+  // но '#' и '?' в имени файла сломают URL. Экранируем их явно.
+  const enc = encodeURI(norm).replace(/#/g, '%23').replace(/\?/g, '%3F');
+  return 'file:///' + enc.replace(/^\/+/, '');
+}
+
+// Extension whitelist for renderable thumbnails. Видео в <img> не отрендерится,
+// поэтому показываем только статичные форматы.
+const RENDERABLE_EXT = new Set(['png','jpg','jpeg','webp','gif','bmp']);
+
+export function isRenderableImagePath(p) {
+  if (!p) return false;
+  const ext = String(p).split('.').pop().toLowerCase();
+  return RENDERABLE_EXT.has(ext);
+}

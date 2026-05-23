@@ -54,14 +54,44 @@ function _walkItems(root, out) {
   }
 }
 
+// Кэш ProjectItem по nodeId. Раньше revealInBin / importToBin делали O(N)
+// tree walk на каждый вызов — на проекте с ~500 клипами одно "Show in bin"
+// становилось заметным (десятки ms на каждом клике). Стратегия:
+//   1) cache hit → быстро вернуть закэшированный ProjectItem;
+//   2) проверить, что pi всё ещё жив (Pr мог удалить элемент). pi.nodeId
+//      бросает после удаления — try/catch ловит это и инвалидирует запись;
+//   3) cache miss → walk tree, по дороге заполняя ВСЕ встреченные nodeId
+//      в кэш (батч-стиль, дешевле чем lazy populate).
+//
+// Инвалидация — мягкая: на importToBin сбрасываем кэш, потому что новый
+// nodeId может конфликтнуть с переиспользованным id Pr (теоретический риск).
+// Других триггеров не нужно: проверка живости в (2) ловит удаления.
+var _piCache = {};
+
+function _piCacheClear() { _piCache = {}; }
+
+function _piIsAlive(pi) {
+  if (!pi) return false;
+  try {
+    // Любой доступ — если item мёртв, ExtendScript кинет; иначе строка ok.
+    var _ = String(pi.nodeId);
+    return true;
+  } catch (e) { return false; }
+}
+
 function _findProjectItemById(id) {
-  // ProjectItem doesn't expose stable id. Use nodeId.
+  var key = String(id);
+  var hit = _piCache[key];
+  if (hit && _piIsAlive(hit)) return hit;
+  if (hit) delete _piCache[key];  // мёртвая запись
+
   var stack = [app.project.rootItem];
   while (stack.length) {
     var n = stack.pop();
     for (var i = 0; i < n.children.numItems; i++) {
       var c = n.children[i];
-      if (String(c.nodeId) === String(id)) return c;
+      try { _piCache[String(c.nodeId)] = c; } catch (e) {}
+      if (String(c.nodeId) === key) return c;
       if (c.type === 2 /* bin */) stack.push(c);
     }
   }
@@ -105,6 +135,11 @@ function getTimelineSelection(playheadOnly) {
       var pi = clip.projectItem;
       if (!pi) return false;
       var kind = _itemKind(pi);
+      // Adjustment layers / color mattes / generators / transitions возвращают
+      // ProjectItem без mediaPath → kind='unknown'. На клиенте такой clip всё
+      // равно отвергается image/video-валидацией слота, но успевает занять
+      // место в списке и сбивает auto-fill. Фильтруем здесь.
+      if (kind === 'unknown') return false;
       items.push({
         projectItemId: String(pi.nodeId),
         path: String(pi.getMediaPath ? pi.getMediaPath() : ''),
@@ -115,14 +150,16 @@ function getTimelineSelection(playheadOnly) {
       });
       return true;
     }
+    var sawAny = false;
     for (var t = 0; t < seq.videoTracks.numTracks; t++) {
       var trk = seq.videoTracks[t];
       for (var c = 0; c < trk.clips.numItems; c++) {
         var clip = trk.clips[c];
-        if (playheadOnly || clip.isSelected()) clipAt(trk, clip);
+        if (playheadOnly || clip.isSelected()) { sawAny = true; clipAt(trk, clip); }
       }
     }
     if (items.length === 0) {
+      if (sawAny) return _err('unsupported_kind');
       return _err(playheadOnly ? 'no_clip_at_playhead' : 'no_selection');
     }
     return _ok({ items: items });
@@ -802,6 +839,10 @@ function importToBin(path) {
     }
 
     if (pi) {
+      // Прогреваем кэш «по пути» новой записью + сбрасываем мёртвые
+      // (importFiles мог переиспользовать какие-то nodeId).
+      _piCacheClear();
+      try { _piCache[String(pi.nodeId)] = pi; } catch (e) {}
       return _ok({
         projectItemId: String(pi.nodeId),
         binName: foundIn || 'PhygitalStudio',

@@ -13,7 +13,7 @@ function fmtBalance(n) {
   return String(Math.round(x));
 }
 
-export function Header({ health, api }) {
+export function Header({ health, api, store }) {
   const cls = `pill ${health.status}`;
   const label =
     health.status === 'online' ? 'online' :
@@ -23,27 +23,29 @@ export function Header({ health, api }) {
 
   // Balance polling. Refreshes every 30s when sidecar is online — matches
   // Phygital+ web UI cadence per HAR recon. Hidden when sidecar offline
-  // (call would 503 / clutter the header).
-  const [bal, setBal] = useState({ value: null, infinity: false, error: null, loading: false });
+  // (call would 503 / clutter the header). Состояние пишем в store, чтобы
+  // CostBar мог сравнить price vs balance.
+  const bal = (store && store.get && store.get().balance) || { value: null, infinity: false, error: null, loading: false };
+  const writeBal = (next) => { if (store) store.set({ balance: next }); };
 
   useEffect(() => {
     if (health.status !== 'online') {
-      setBal(b => ({ ...b, value: null, error: null }));
+      writeBal({ value: null, infinity: false, error: null, loading: false });
       return undefined;
     }
     let cancelled = false;
     async function load() {
-      setBal(b => ({ ...b, loading: true }));
+      writeBal({ ...((store && store.get().balance) || {}), loading: true });
       try {
         const r = await api.getBalance();
         if (cancelled) return;
-        setBal({ value: r.balance, infinity: !!r.is_infinity, error: null, loading: false });
+        writeBal({ value: r.balance, infinity: !!r.is_infinity, error: null, loading: false });
       } catch (e) {
         if (cancelled) return;
         // 503 = "session_not_ready" — show as "—", not as an error pill.
         const code = e.status || 0;
         const isSession = code === 503;
-        setBal({ value: null, infinity: false, error: isSession ? null : (e.message || 'balance error'), loading: false });
+        writeBal({ value: null, infinity: false, error: isSession ? null : (e.message || 'balance error'), loading: false });
       }
     }
     load();

@@ -1,5 +1,5 @@
 import { html } from '../lib/html.js';
-import { useEffect } from '../vendor/preact-hooks.module.js';
+import { useEffect, useRef } from '../vendor/preact-hooks.module.js';
 import { ModelPicker } from './ModelPicker.js';
 import { ScenarioPicker } from './ScenarioPicker.js';
 import { PromptInput } from './PromptInput.js';
@@ -12,6 +12,7 @@ import { saveDraftToStorage, createUploadActions } from '../lib/state.js';
 import { pickFilesFromDisk, readFileAsBlob, makeThumbDataURL } from '../lib/disk.js';
 import { host, hostQueued } from '../lib/host.js';
 import { toast } from '../lib/toast.js';
+import { slotLabel } from '../lib/slot_labels.js';
 
 const uploadActions = createUploadActions(null);
 
@@ -67,6 +68,40 @@ export function GenerateTab({ snap, actions, api, store, onSubmitted }) {
   const slots = getSlotsForScenario({ videoNodes, nodeId: draft.model_id, scenario: draft.scenario });
 
   useEffect(() => { saveDraftToStorage(draft); }, [JSON.stringify(draft)]);
+
+  // Auto-fill image slot from active clip. Триггерится один раз на сценарий —
+  // пока сценарий не меняется, ничего не делаем (даже если юзер очистил
+  // слот вручную, не хотим назойливо переподтягивать). Берём first empty
+  // single-image слот; для array-слотов auto-fill двусмысленен (один файл
+  // из многих) — пропускаем. Тихо no-op если под playhead'ом не image.
+  const autoFilledForScenarioRef = useRef(null);
+  useEffect(() => {
+    if (health.status !== 'online') return undefined;
+    const scenKey = `${draft.model_id}|${draft.scenario}`;
+    if (autoFilledForScenarioRef.current === scenKey) return undefined;
+    const firstEmptyImg = slots.find(s =>
+      s.kind !== 'array' && isImageSlotName(s.name) && !draft.slots[s.name]
+    );
+    if (!firstEmptyImg) return undefined;
+    autoFilledForScenarioRef.current = scenKey;
+    let cancelled = false;
+    (async () => {
+      let sel;
+      try { sel = await host.getTimelineSelection(true); }
+      catch (_) { return; }  // нет sequence / нет clip под playhead — silent
+      if (cancelled) return;
+      const items = (sel && sel.items) || [];
+      const imgItem = items.find(it => it.kind === 'image');
+      if (!imgItem) return;
+      // Race-guard: за время host-вызова юзер мог сам положить файл.
+      if (store.get().draft.slots[firstEmptyImg.name]) return;
+      try {
+        await ingestPath(firstEmptyImg, imgItem.path, 'auto', imgItem.name);
+        toast.success(`Auto-filled "${slotLabel(firstEmptyImg.name)}" from timeline`);
+      } catch (_) { /* upload failure shows its own toast */ }
+    })();
+    return () => { cancelled = true; };
+  }, [draft.model_id, draft.scenario, health.status]);
 
   async function ingestPath(slot, path, source, displayName) {
     const name = displayName || path.split(/[\\/]/).pop();

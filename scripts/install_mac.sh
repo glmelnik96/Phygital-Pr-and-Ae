@@ -160,10 +160,14 @@ info "playwright install chromium"
 "$VENV_PY" -m playwright install chromium
 ok "Chromium для Playwright установлен"
 
-# Smoke-test: импортнём app — если упало, дальше нет смысла продолжать.
-info "Smoke-test: import app.main"
-(cd "$SIDECAR_DIR" && "$VENV_PY" -c "import app.main; print('app.main import OK')") \
-  || die "Sidecar не импортируется — проверь pip-зависимости вручную"
+# Smoke-test: импортнём app + V1.1 модули — если упало, дальше нет смысла продолжать.
+info "Smoke-test: import app.main + V1.1 modules"
+(cd "$SIDECAR_DIR" && "$VENV_PY" -c "
+import app.main
+from app.services.idempotency import IdempotencyStore, hash_request_body
+assert hash_request_body({'a': 1})  # sanity
+print('app.main + V1.1 import OK')
+") || die "Sidecar не импортируется — проверь pip-зависимости вручную"
 
 # ── 6. CEP debug mode ───────────────────────────────────────────────────────
 info "Включаю CEP PlayerDebugMode для CSXS.11 и CSXS.12"
@@ -212,15 +216,22 @@ fi
 
 # ── 9. Финал ───────────────────────────────────────────────────────────────
 echo
-ok "Установка завершена."
+ok "Установка V1.1 завершена."
 echo
 cat <<EOF
+Что нового в V1.1 (см. CHANGELOG.md):
+  • Sidecar: Idempotency-Key, /v1/ versioning, cursor-pagination, HEAD download.
+  • Panel:   persistent thumbnails, queue widget с cancel, cost preview,
+             auto-fill image slot из активного клипа таймлайна.
+
 Дальше:
   1. ${BLU}Полностью закрой${RST} Premiere Pro: Cmd+Q (не Cmd+W).
   2. Открой Pr заново → Window → Extensions → Phygital Studio.
   3. macOS попросит ${YEL}Files and Folders${RST} разрешение для python3 —
      одобри (нужно sidecar'у для чтения файлов из bin).
   4. В шапке панели должны загореться pill «online» и баланс кредитов.
+  5. После генерации увидишь персистентный queue-widget сверху и thumbnails
+     в History — они переживут перезагрузку панели.
 
 Если что-то не так — docs/INSTALL_MACOS.md → секция «Траблшут».
 EOF

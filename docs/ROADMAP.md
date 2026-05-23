@@ -51,12 +51,23 @@
 - [ ] Сценарий init-image для i2v: panel → `POST /jobs/{id}/upload` → `file_obj_id` →
   `POST /jobs` с `init_files=[file_obj_id]`.
 
-## Phase 5 — Polish
+## Phase 5 — Polish (done, 2026-05-23 → V1.1)
 
-- [ ] Очередь в UI (список активных + history последних 50).
-- [ ] Estimate стоимости перед запуском (`get_credits_price`).
-- [ ] Persist UI-state между запусками Pr/AE (`localStorage` в CEP).
-- [ ] Нотификации о готовности (CEP `notifier` API или toast в панели).
+- [x] Очередь в UI (`<QueueWidget>` поверх табов: queued + running с per-job cancel).
+- [x] Estimate стоимости перед запуском (`<CostBar>` + `POST /jobs/preview-cost`,
+      Submit блокируется при `price > balance`).
+- [x] Persist UI-state между запусками Pr (`phygital-studio.jobMeta.v1` в
+      `localStorage`: `localPath`, `projectItemId`; thumbnails через `file:///`).
+- [x] Toast-нотификации о готовности (auto-import + success/warning toast).
+- [x] Auto-fill image slot from active clip (`<GenerateTab>` useRef-страж).
+
+V1.1 sidecar polish (parallel):
+- [x] M8 Idempotency-Key для `POST /jobs` (24h TTL, in-memory).
+- [x] M9 cursor-pagination на `GET /jobs`.
+- [x] M11 `/v1/` версионирование (dual-mount, legacy без префикса работает).
+- [x] M14 `HEAD /jobs/{id}/download` для preflight'а thumbnails.
+
+Полный список — [`CHANGELOG.md`](../CHANGELOG.md). Открытые вопросы → [`NEXT_AUDIT.md`](NEXT_AUDIT.md).
 
 ## Phase 6 — Mac parity
 

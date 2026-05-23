@@ -22,9 +22,8 @@ function friendlyValidationError(err) {
 export function SubmitButton({ snap, api, onSubmitted }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const { draft, videoNodes, health, cost } = snap;
+  const { draft, videoNodes, health, cost, balance } = snap;
   const v = validateDraft({ videoNodes, draft });
-  const disabled = busy || health.status !== 'online' || !v.ok;
 
   // Show price inline on the button when we have a fresh estimate for the
   // current draft. Stale or missing estimates fall back to "Generate".
@@ -32,6 +31,18 @@ export function SubmitButton({ snap, api, onSubmitted }) {
   const freshCost = cost && cost.key === costKey && typeof cost.price === 'number'
     ? cost.price
     : null;
+
+  // Блокируем submit, если price точно превышает balance (infinity = пропускаем
+  // проверку, неизвестный balance — не блокируем чтобы не ловить ложный
+  // negative до первого /balance ответа).
+  const bal = balance || {};
+  const insufficientBalance =
+    freshCost != null &&
+    !bal.infinity &&
+    typeof bal.value === 'number' &&
+    freshCost > bal.value;
+
+  const disabled = busy || health.status !== 'online' || !v.ok || insufficientBalance;
 
   async function onClick() {
     setBusy(true); setErr(null);
@@ -54,12 +65,18 @@ export function SubmitButton({ snap, api, onSubmitted }) {
 
   const label =
     busy ? 'Submitting…' :
+    insufficientBalance ? `Insufficient balance · ~${freshCost} credits` :
     freshCost != null ? `Generate · ~${freshCost} credits` :
     'Generate';
 
+  const btnTitle =
+    disabled && !v.ok ? 'Fix the errors below first' :
+    insufficientBalance ? `Need ${freshCost} credits, only ${bal.value} available` :
+    undefined;
+
   return html`
     <div class="submit">
-      <button class="primary submit-btn" onClick=${onClick} disabled=${disabled} title=${disabled && !v.ok ? 'Fix the errors below first' : undefined}>
+      <button class="primary submit-btn" onClick=${onClick} disabled=${disabled} title=${btnTitle}>
         ${label}
       </button>
       ${!v.ok && v.errors.length > 0

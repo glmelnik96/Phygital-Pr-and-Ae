@@ -42,9 +42,9 @@ export function CostBar({ snap, api, store }) {
     // makeCostKey covers everything that affects price.
   }, [key, health.status, v.ok]);
 
-  // Render is now passive — no estimate button. SubmitButton surfaces the
-  // current price inline; this bar is only kept as an inline status row for
-  // errors and high-cost warnings.
+  // Render: passive status row — price preview, balance warning, errors.
+  // SubmitButton тоже показывает price inline; bar нужен для warning'ов и
+  // когда price > 100 credits / balance недостаточен.
   if (!v.ok) return null;
   if (cost.loading && cost.key === key) {
     return html`<div class="cost"><span class="cost-stale">Estimating cost…</span></div>`;
@@ -52,8 +52,23 @@ export function CostBar({ snap, api, store }) {
   if (cost.error && cost.key === key) {
     return html`<div class="cost"><span class="cost-err">Cost estimate failed: ${cost.error}</span></div>`;
   }
-  if (cost.key === key && typeof cost.price === 'number' && cost.price > 100) {
-    return html`<div class="cost cost-warn-only">This generation will cost &gt; 100 credits</div>`;
+  if (cost.key === key && typeof cost.price === 'number') {
+    const price = cost.price;
+    const bal = snap.balance || {};
+    // Балансу с infinity (внутренний/тестовый аккаунт) проверка не нужна.
+    const insufficient =
+      !bal.infinity &&
+      typeof bal.value === 'number' &&
+      price > bal.value;
+    const high = price > 100;
+    if (insufficient) {
+      return html`<div class="cost cost-warn-only">
+        Insufficient balance — ${price} credits required, ${bal.value} available
+      </div>`;
+    }
+    if (high) {
+      return html`<div class="cost cost-warn-only">This generation will cost ~${price} credits</div>`;
+    }
   }
   return null;
 }

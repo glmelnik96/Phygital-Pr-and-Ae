@@ -5,20 +5,26 @@
 Flux, GPT Image и др.) прямо из интерфейса Adobe и автоматически класть результат на таймлайн
 (Pr) или в активный composition (AE).
 
-**Status (2026-05-21):**
-- Sub-project A (sidecar MVP) — реализация завершена, 74 теста.
-- Sub-project B (Pr-панель) — реализация завершена, 34 теста, проходит manual E2E.
+**Status (2026-05-23, V1.1):**
+- Sub-project A (sidecar MVP) — реализация завершена, **168 тестов**.
+  V1.1: Idempotency-Key, `/v1/` versioning, cursor-pagination, HEAD на download.
+- Sub-project B (Pr-панель) — реализация завершена, **56 тестов**, проходит manual E2E.
+  V1.1: persistent thumbnails, queue widget с per-job cancel, cost preview, auto-fill image slot.
 - Sub-project C (AE-панель) — не начато.
 - Sub-project D (видеоноды) — реализовано в sidecar, доступно через Pr-панель.
+
+Все изменения V1.1 — в [CHANGELOG.md](CHANGELOG.md).
 
 ## Документация
 
 | Документ | О чём |
 |---|---|
+| [CHANGELOG.md](CHANGELOG.md) | История версий (последняя — V1.1) |
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Как работает целиком: компоненты, e2e пайплайны, persistence, подводные камни |
 | [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) | Пошаговая установка на Windows + траблшут |
 | [docs/INSTALL_MACOS.md](docs/INSTALL_MACOS.md) | Пошаговая установка на macOS + траблшут |
 | [docs/AUDIT.md](docs/AUDIT.md) | Исходный аудит: что переиспользуется, реалистичность, риски |
+| [docs/NEXT_AUDIT.md](docs/NEXT_AUDIT.md) | Открытые вопросы для следующего аудита (после V1.1) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Sidecar + CEP, потоки данных, контракты HTTP |
 | [docs/AUTH.md](docs/AUTH.md) | Бутстрап Phygital-сессии через Playwright recon |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | План работ по фазам |
