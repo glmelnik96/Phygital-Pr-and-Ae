@@ -90,8 +90,51 @@ function clearPidFile() {
   } catch (_) {}
 }
 
+// Проверяет, что pid принадлежит python-процессу (нашему sidecar'у).
+// Нужно потому, что PID'ы переиспользуются: после краша Pr на диске остался
+// pidfile со 124, через неделю 124 — это чей-то Chrome. Если просто
+// taskkill'нуть его, юзер получит молчаливый закрытый браузер.
+//
+// Возвращает true только если процесс существует И его image — python*.
+// Если что-то неясно (tasklist/ps упал, кодировка непонятна) — возвращаем
+// false и НЕ убиваем; лучше оставить тёмный зомби-pidfile чем зашибить
+// чужое приложение.
+function _isOurSidecar(pid) {
+  if (!pid || typeof require !== 'function') return false;
+  try {
+    const { execFileSync } = require('child_process');
+    if (IS_WIN) {
+      // tasklist печатает в CP866 на ru-RU локали — но image-имя ascii, так что
+      // безопасно искать "python" подстрокой в utf-8/binary.
+      const out = execFileSync(
+        'tasklist',
+        ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'],
+        { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 },
+      );
+      // CSV format: "pythonw.exe","12345","Console","1","12,345 K"
+      // Если PID отсутствует — tasklist печатает "INFO: No tasks are running..."
+      const text = out.toString('binary').toLowerCase();
+      if (text.includes('no tasks are running')) return false;
+      return text.includes('python');
+    } else {
+      const out = execFileSync('ps', ['-p', String(pid), '-o', 'comm='], {
+        stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000,
+      });
+      const name = out.toString('utf8').trim().toLowerCase();
+      // comm может быть "python3", "python3.11", "Python" (framework build), и т.п.
+      return name.includes('python');
+    }
+  } catch (_) {
+    // ps/tasklist not found, или process не существует, или timeout — считаем
+    // что это не наш sidecar и кила не делаем.
+    return false;
+  }
+}
+
 function killPid(pid) {
   if (!pid || typeof require !== 'function') return;
+  // Guard против PID-reuse: не убиваем процесс, который точно не наш.
+  if (!_isOurSidecar(pid)) return;
   try {
     if (IS_WIN) {
       // /T = tree, /F = force. Required because uvicorn forks workers.
@@ -140,10 +183,64 @@ function resolveSidecarDir() {
   }
 }
 
-function spawnSidecarOnce(sidecarDir) {
+// Внутренний helper: пробует один candidate-интерпретатор и резолвится в
+// child object при успехе (либо null при ENOENT / ошибке spawn'а).
+//
+// Раньше тут была баг (H6): child.once('error', () => failed = true) +
+// сразу же `if (!failed)` — error-событие async, поэтому failed всегда
+// false на момент проверки. ENOENT приходил уже после того как мы
+// записали "успешный" pid в pidfile и вернули true. В итоге если py-
+// интерпретатор отсутствовал, ensureSidecar 15с polling'a возвращал
+// spawn-timeout, а на диске оставался pidfile с pid'ом несуществующего
+// процесса (или, что хуже, с pid'ом случайного чужого процесса после
+// pid-reuse).
+//
+// Теперь явно ждём 'spawn' либо 'error' (или таймаут 600мс) перед
+// возвращением. 'spawn' event есть в Node.js 14.17+ — CEP NodeJS на
+// поддерживаемых версиях Pr/AE подходит.
+function _trySpawn(spawn, py, sidecarDir) {
+  return new Promise((resolve) => {
+    let child = null;
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    try {
+      child = spawn(py, ['-m', 'app.main'], {
+        cwd: sidecarDir,
+        detached: true,    // new process group → we can kill the group on quit
+        stdio: 'ignore',
+        windowsHide: true, // no-op on macOS, hides console on Windows
+      });
+    } catch (_) {
+      finish(null);
+      return;
+    }
+    child.once('error', () => finish(null));
+    child.once('spawn', () => {
+      try { child.unref(); } catch (_) {}
+      finish(child);
+    });
+    // Fallback таймаут — на случай если 'spawn' event не реализован.
+    setTimeout(() => {
+      if (settled) return;
+      if (child && child.pid) {
+        try { child.unref(); } catch (_) {}
+        finish(child);
+      } else {
+        finish(null);
+      }
+    }, 600);
+  });
+}
+
+async function spawnSidecarOnce(sidecarDir) {
   if (typeof require !== 'function') return false;
   const { spawn } = require('child_process');
   const path = require('path');
+  const fs = require('fs');
   // Prefer the project-local venv if it exists (created by scripts/install_mac.sh
   // or `py -m venv .venv` on Windows). Falling back to system Python is only OK
   // for dev setups where deps were installed globally.
@@ -152,27 +249,18 @@ function spawnSidecarOnce(sidecarDir) {
     : path.join(sidecarDir, '.venv', 'bin', 'python3');
   const candidates = [venvPy, ...PYTHON_CANDIDATES];
   for (const py of candidates) {
-    try {
-      const child = spawn(py, ['-m', 'app.main'], {
-        cwd: sidecarDir,
-        detached: true,    // new process group → we can kill the group on quit
-        stdio: 'ignore',
-        windowsHide: true, // no-op on macOS, hides console on Windows
-      });
-      // Surface spawn errors (ENOENT for missing interpreter) — they fire after
-      // spawn returns, so we attach a listener and let the next candidate try.
-      let failed = false;
-      child.once('error', () => { failed = true; });
-      // Give the OS a tick to fail-fast on missing executable.
-      // We can't await here synchronously; rely on subsequent isAlive() polling.
-      child.unref();
-      if (!failed) {
-        spawnedPid = child.pid;
-        writePidFile(child.pid);
-        return true;
-      }
-    } catch (_) {
-      // try next candidate
+    // Для абсолютных путей дешевле сначала проверить наличие, чем спавнить и
+    // ловить ENOENT. Для `pythonw` / `python3` (PATH lookup) — спавним сразу.
+    if (path.isAbsolute(py)) {
+      let exists = false;
+      try { exists = fs.existsSync(py); } catch (_) { exists = false; }
+      if (!exists) continue;
+    }
+    const child = await _trySpawn(spawn, py, sidecarDir);
+    if (child && child.pid) {
+      spawnedPid = child.pid;
+      writePidFile(child.pid);
+      return true;
     }
   }
   return false;
@@ -208,7 +296,7 @@ export async function ensureSidecar({ pollTimeoutMs = 15000, pollIntervalMs = 50
   // Step 3 — spawn fresh.
   const sidecarDir = resolveSidecarDir();
   if (!sidecarDir) return { ok: false, reason: 'cep-node-unavailable' };
-  if (!spawnSidecarOnce(sidecarDir)) return { ok: false, reason: 'spawn-failed' };
+  if (!(await spawnSidecarOnce(sidecarDir))) return { ok: false, reason: 'spawn-failed' };
 
   const deadline = Date.now() + pollTimeoutMs;
   while (Date.now() < deadline) {

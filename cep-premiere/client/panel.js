@@ -4,8 +4,17 @@ import { createApi } from './lib/api.js';
 import { store } from './lib/state.js';
 import { App } from './components/App.js';
 import { ensureSidecar, stopSpawnedSidecar } from './lib/autostart.js';
+import { sidecarAuthHeader } from './lib/sidecar_token.js';
 
-const api = createApi({ fetch: window.fetch.bind(window), baseUrl: 'http://127.0.0.1:8765' });
+// `getAuthHeaders` is called per-request (not once at boot) so that if the
+// sidecar regenerates its token after a panel mount (e.g. fresh install
+// finishing in parallel), the next request picks up the new value once
+// `clearTokenCache()` is called or the panel reloads.
+const api = createApi({
+  fetch: window.fetch.bind(window),
+  baseUrl: 'http://127.0.0.1:8765',
+  getAuthHeaders: () => sidecarAuthHeader(),
+});
 render(html`<${App} store=${store} api=${api} />`, document.getElementById('root'));
 
 // Fire-and-forget: the health useEffect in <App> will pick up the sidecar

@@ -140,6 +140,59 @@ describe('api.extractFrame', () => {
   });
 });
 
+describe('api auth header injection', () => {
+  it('attaches getAuthHeaders() result on every request', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } }
+    ));
+    const api = createApi({
+      fetch: fm,
+      baseUrl: 'http://h',
+      getAuthHeaders: () => ({ 'X-Phygital-Sidecar-Token': 'secret123' }),
+    });
+    await api.getHealth();
+    expect(fm.mock.calls[0][1].headers['X-Phygital-Sidecar-Token']).toBe('secret123');
+  });
+
+  it('attaches auth header to downloadJob (raw fetch path)', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      new Blob(['BIN']), { status: 200 }
+    ));
+    const api = createApi({
+      fetch: fm,
+      baseUrl: 'http://h',
+      getAuthHeaders: () => ({ 'X-Phygital-Sidecar-Token': 't1' }),
+    });
+    await api.downloadJob('J123', 0);
+    expect(fm.mock.calls[0][1].headers['X-Phygital-Sidecar-Token']).toBe('t1');
+  });
+
+  it('caller-supplied headers override auth headers (last write wins)', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } }
+    ));
+    const api = createApi({
+      fetch: fm,
+      baseUrl: 'http://h',
+      getAuthHeaders: () => ({ 'X-Phygital-Sidecar-Token': 'tok', 'content-type': 'text/plain' }),
+    });
+    // createJob sends its own content-type; spread order in api.js puts caller headers after.
+    await api.createJob({ node_id: 94, params: {}, init_files: {} });
+    expect(fm.mock.calls[0][1].headers['content-type']).toBe('application/json');
+    expect(fm.mock.calls[0][1].headers['X-Phygital-Sidecar-Token']).toBe('tok');
+  });
+
+  it('works without getAuthHeaders (back-compat, tests, dev)', async () => {
+    const fm = vi.fn().mockResolvedValueOnce(new Response(
+      JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } }
+    ));
+    const api = createApi({ fetch: fm, baseUrl: 'http://h' });
+    await api.getHealth();
+    // Should not throw, headers is at least an empty object
+    expect(fm.mock.calls[0][1].headers).toEqual({});
+  });
+});
+
 describe('api.previewCost', () => {
   it('POSTs JSON with node_id+params, init_files=empty', async () => {
     const fm = vi.fn().mockResolvedValueOnce(new Response(

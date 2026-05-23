@@ -6,8 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from loguru import logger
 from pydantic import BaseModel, Field
 
+from app import paths
 from app.services.task_registry import JobState
 from app.workflows import NODES
 
@@ -121,10 +123,36 @@ async def download_job(job_id: str, request: Request, index: int = 0):
         raise HTTPException(status_code=409, detail={"error": "not_completed", "status": state.status})
     if index < 0 or index >= len(state.result_paths):
         raise HTTPException(status_code=400, detail={"error": "bad_index"})
+
+    # C4: result_paths приходит из downloader, но в jsonl записано и при
+    # restore() мы доверяем содержимому файла. Если jsonl как-либо испорчен
+    # (атакующий с локальным доступом отредактировал, или будущая sync с
+    # облака) — путь "../../etc/shadow" будет принят без проверки. Поэтому
+    # canonicalize и проверяем что физически лежит внутри downloads_dir.
     fpath = Path(state.result_paths[index])
-    if not fpath.exists():
+    try:
+        resolved = fpath.resolve(strict=False)
+        root = paths.downloads_dir().resolve(strict=False)
+    except OSError as e:
+        logger.warning(f"download_job {job_id}: path resolve failed: {e}")
         raise HTTPException(status_code=410, detail={"error": "file_gone"})
-    return FileResponse(fpath, filename=fpath.name)
+
+    try:
+        # Path.is_relative_to добавлен в 3.9, sidecar требует 3.10+ (см. paths.ensure_dirs).
+        if not resolved.is_relative_to(root):
+            logger.error(
+                f"download_job {job_id}: path traversal blocked — "
+                f"resolved={resolved} not under {root}"
+            )
+            raise HTTPException(status_code=403, detail={"error": "path_outside_downloads"})
+    except (AttributeError, ValueError):
+        # Защитная ветка — на старых питонах или при сравнении путей на разных дисках
+        # is_relative_to кидает. Считаем такое подозрительным.
+        raise HTTPException(status_code=403, detail={"error": "path_outside_downloads"})
+
+    if not resolved.exists():
+        raise HTTPException(status_code=410, detail={"error": "file_gone"})
+    return FileResponse(resolved, filename=resolved.name)
 
 
 @router.delete("/jobs/{job_id}", status_code=204)

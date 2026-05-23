@@ -121,21 +121,31 @@ class TaskRegistry:
         await self._append(rec)
 
     async def restore(self) -> None:
-        """Прочитать jsonl и схлопнуть события до текущего state."""
+        """Прочитать jsonl и схлопнуть события до текущего state.
+
+        C2: чтение jsonl на event loop'е блокировало startup при больших
+        журналах (>10k jobs ≈ сотни ms блокировки uvicorn'а). Выносим в
+        threadpool через asyncio.to_thread.
+        """
         if not self.jsonl_path.exists():
             return
 
-        with self.jsonl_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"restore: skip malformed line: {e}")
-                    continue
-                self._apply_event(rec)
+        def _read_records() -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            with self.jsonl_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        out.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"restore: skip malformed line: {e}")
+            return out
+
+        records = await asyncio.to_thread(_read_records)
+        for rec in records:
+            self._apply_event(rec)
 
         # Пометить orphans: jobs со status="queued"/"submitted"/"pending" без task_id
         # значит sidecar упал между create и получением task_id. Резюмировать нельзя.
@@ -180,7 +190,15 @@ class TaskRegistry:
                 state.error = rec["error"]
 
     async def _append(self, rec: dict[str, Any]) -> None:
+        # C2: append-only fsync на каждое событие → блокирует event loop на
+        # медленных дисках. Сериализация JSON и fs-write оба выносятся в
+        # threadpool. Лок здесь сериализует _writes_, чтобы две корутины не
+        # перепутали порядок строк в файле.
+        line = json.dumps(rec, ensure_ascii=False) + "\n"
         async with self._write_lock:
-            self.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.jsonl_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            await asyncio.to_thread(self._write_line, line)
+
+    def _write_line(self, line: str) -> None:
+        self.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.jsonl_path.open("a", encoding="utf-8") as f:
+            f.write(line)

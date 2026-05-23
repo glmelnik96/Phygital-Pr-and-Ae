@@ -83,6 +83,42 @@ def test_download_404_if_not_completed(client):
     assert r2.status_code == 409
 
 
+def test_download_blocks_path_traversal(client, tmp_path):
+    """C4: result_paths указывающий за пределы downloads_dir должен дать 403."""
+    from app import paths as paths_mod
+    r = client.post("/jobs", json={"node_id": 94, "params": {}})
+    job_id = r.json()["job_id"]
+    state = client.app.state.task_registry.get(job_id)
+    # Создаём целевой файл вне downloads (имитируем атаку).
+    evil = tmp_path / "secrets.txt"
+    evil.write_text("password=hunter2", encoding="utf-8")
+    # Прямо подменяем result_paths/status, минуя update_status — имитируем
+    # повреждённый jsonl или future-cloud-sync.
+    state.result_paths = [str(evil)]
+    state.status = "completed"
+    r2 = client.get(f"/jobs/{job_id}/download")
+    assert r2.status_code == 403
+    assert r2.json()["detail"]["error"] == "path_outside_downloads"
+
+
+def test_download_works_for_legitimate_path(client, tmp_path):
+    """Канонический путь под downloads_dir должен качаться."""
+    from app import paths as paths_mod
+    # downloads_dir уже = tmp_path/downloads из-за monkeypatch resolve_app_data.
+    target = paths_mod.downloads_dir() / "abc.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"hello")
+
+    r = client.post("/jobs", json={"node_id": 94, "params": {}})
+    job_id = r.json()["job_id"]
+    state = client.app.state.task_registry.get(job_id)
+    state.result_paths = [str(target)]
+    state.status = "completed"
+    r2 = client.get(f"/jobs/{job_id}/download")
+    assert r2.status_code == 200
+    assert r2.content == b"hello"
+
+
 def test_post_jobs_accepts_init_files_dict(client):
     r = client.post(
         "/jobs",

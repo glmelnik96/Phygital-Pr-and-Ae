@@ -21,6 +21,8 @@ from pathlib import Path
 from loguru import logger
 from playwright.async_api import async_playwright
 
+from app.services.session_storage import write_secure_json
+
 TARGET_URL = "https://app.phygital.plus/"
 ACCESS_COOKIE = "st-access-token"
 DEFAULT_TIMEOUT_SEC = 600  # 10 минут на логин
@@ -103,5 +105,7 @@ def _write_session_dump(path: Path, cookies: list[dict], url: str) -> None:
         "url": url,
         "cookies": cookies,
     }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Шифрованная (DPAPI на Win) + атомарная запись — см. session_storage.py
+    # для деталей формата и mitigations (H3, H12).
+    write_secure_json(path, payload)
     logger.info(f"Session dumped -> {path}")

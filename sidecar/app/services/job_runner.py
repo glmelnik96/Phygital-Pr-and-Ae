@@ -86,6 +86,14 @@ class JobRunner:
                 await self._do_run(job_id, state, workflow_class)
 
     async def _do_run(self, job_id: str, state, workflow_class) -> None:
+        # C1: httpx.AsyncClient внутри PhygitalClient — open file descriptor +
+        # connection pool. Без явного __aexit__ ресурсы висят до GC, и при
+        # параллельной нагрузке (n jobs in flight) уходят в ulimit / выжирают
+        # порты. _get_client() возвращает уже __aenter__'нутый клиент, поэтому
+        # caller (мы) обязан закрыть его в try/finally. Тестовые AsyncMock-и
+        # отдают MagicMock-клиента — у него aexit либо не awaitable либо
+        # mock-объект, поэтому swallow'им исключение.
+        client = None
         try:
             await self.registry.update_status(job_id, status="submitted")
             client = await self._get_client()
@@ -167,6 +175,17 @@ class JobRunner:
             await self.registry.update_status(
                 job_id, status="failed", error=f"{type(e).__name__}: {e}",
             )
+        finally:
+            if client is not None:
+                aexit = getattr(client, "__aexit__", None)
+                if aexit is not None:
+                    try:
+                        result = aexit(None, None, None)
+                        if hasattr(result, "__await__"):
+                            await result
+                    except Exception:
+                        # Best-effort close — не маскируем основную ошибку.
+                        logger.debug(f"client.__aexit__ failed for job {job_id}", exc_info=True)
 
     async def cancel_all(self) -> None:
         for job_id, task in list(self._active.items()):

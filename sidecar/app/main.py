@@ -19,9 +19,27 @@ from app import paths
 from app.config import Settings
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0:0:0:0:0:0:0:1"})
+
+
+def _assert_loopback_host(host: str) -> None:
+    """Sidecar НИКОГДА не должен слушать наружу — иначе токен-стена не помогает
+    от network-based противника, плюс session.json — приватные данные.
+
+    H2 в audit-отчёте: PHYGITAL_HOST=0.0.0.0 в .env превращает sidecar в
+    публичный proxy к Phygital-аккаунту пользователя. Падаем на старте громко.
+    """
+    if host not in _LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"Refusing to start: host={host!r} is not loopback. "
+            f"Allowed: {sorted(_LOOPBACK_HOSTS)}. Reset PHYGITAL_HOST in .env."
+        )
+
+
 def build_app() -> FastAPI:
     """Build FastAPI app. Используется и в тестах, и в run()."""
     settings = Settings()
+    _assert_loopback_host(settings.host)
     paths.ensure_dirs()
 
     # Импорты ленивые, чтобы тесты paths могли мокать
@@ -37,8 +55,17 @@ def build_app() -> FastAPI:
     from app.services.job_runner import JobRunner
     from app.services.asset_cache import AssetCache
     from app.services.downloader import download_urls
+    from app.services.sidecar_auth import SidecarAuthMiddleware, load_or_create_token
+    from app.services.log_redaction import install_redaction, register_secret
     from app.phygital_client.api import PhygitalClient
     from app.workflows import NODES
+
+    sidecar_token = load_or_create_token(paths.sidecar_token_file())
+    # H4: регистрируем patcher loguru, который вырезает JWT'ы / cookie-value
+    # / sidecar_token из всех log-message'ей перед отдачей в stderr-sink и
+    # file-sink. install_redaction идемпотентен.
+    install_redaction()
+    register_secret(sidecar_token)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -91,12 +118,26 @@ def build_app() -> FastAPI:
         _app.state.get_client = _get_client
 
         _app.state.settings = settings
+        _app.state.sidecar_token = sidecar_token
 
         logger.info(f"Sidecar started: http://{settings.host}:{settings.port}")
         yield
+        # H10: graceful shutdown — cancel'им запущенные jobs и помечаем их
+        # canceled в registry, чтобы при следующем restart'е они не торчали
+        # в "running"/"submitted" и не превратились в orphans (которые наш
+        # restore теперь помечает failed:orphaned_on_restart, но это хуже
+        # чем явная отмена).
+        try:
+            await runner.cancel_all()
+        except Exception:
+            logger.exception("cancel_all on shutdown failed")
         logger.info("Sidecar shutting down")
 
     app = FastAPI(title="Phygital Studio Sidecar", lifespan=lifespan)
+    # Auth middleware регистрируется ДО роутеров и до ЛЮБОГО другого middleware,
+    # чтобы перехватывать запросы первым. Starlette middleware-стек работает
+    # как LIFO: добавленный последним выполняется первым на входе.
+    app.add_middleware(SidecarAuthMiddleware, token=sidecar_token)
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(nodes_router)
@@ -109,6 +150,7 @@ def build_app() -> FastAPI:
 
 def run() -> None:
     settings = Settings()
+    _assert_loopback_host(settings.host)
     _configure_logging(settings)
     uvicorn.run(
         "app.main:build_app",

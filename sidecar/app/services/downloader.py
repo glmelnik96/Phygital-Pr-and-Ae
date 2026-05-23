@@ -72,16 +72,37 @@ async def download_urls(
         for idx, url in enumerate(urls, start=1):
             for attempt in range(1, retries + 1):
                 try:
-                    resp = await client.get(url)
-                    if 500 <= resp.status_code < 600:
-                        raise httpx.HTTPStatusError(
-                            f"{resp.status_code} from {url}", request=resp.request, response=resp,
+                    # Стримим в файл вместо resp.content — видео-файлы от
+                    # Phygital'а могут быть 50-300 MB; держать их в RAM
+                    # параллельно с n_concurrent jobs = OOM. Stream пишет
+                    # по 64 KiB chunk'ам.
+                    async with client.stream("GET", url) as resp:
+                        if 500 <= resp.status_code < 600:
+                            raise httpx.HTTPStatusError(
+                                f"{resp.status_code} from {url}",
+                                request=resp.request, response=resp,
+                            )
+                        resp.raise_for_status()
+                        ext = _ext_from_url(url) or _ext_from_content_type(
+                            resp.headers.get("Content-Type"),
                         )
-                    resp.raise_for_status()
-                    ext = _ext_from_url(url) or _ext_from_content_type(resp.headers.get("Content-Type"))
-                    name = f"{idx:04d}{ext}"
-                    fpath = out_dir / name
-                    fpath.write_bytes(resp.content)
+                        name = f"{idx:04d}{ext}"
+                        fpath = out_dir / name
+                        # Атомарно: пишем в .part и переименовываем, чтобы
+                        # прерванный download не оставил половинный файл,
+                        # который JobRunner потом отдаст по /download.
+                        tmp_path = fpath.with_suffix(fpath.suffix + ".part")
+                        try:
+                            with tmp_path.open("wb") as out:
+                                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                                    out.write(chunk)
+                            tmp_path.replace(fpath)
+                        except BaseException:
+                            try:
+                                tmp_path.unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                            raise
                     results.append(fpath)
                     break  # success → next url
                 except (httpx.HTTPStatusError, httpx.RequestError) as e:

@@ -63,6 +63,16 @@ def asset_uploads_dir() -> Path:
     return resolve_app_data() / "asset_uploads"
 
 
+def sidecar_token_file() -> Path:
+    """Per-install shared-secret для аутентификации CEP-панели → sidecar.
+
+    Лежит в той же AppData, что и session.json (mode 0600 на POSIX). Любой
+    локальный процесс, не имеющий прав на эту папку, не сможет прочитать токен
+    и, соответственно, дёргать /jobs / /assets / /auth (cм. spec §11 — C5).
+    """
+    return resolve_app_data() / "sidecar.token"
+
+
 def ensure_dirs() -> None:
     """Создать всю иерархию каталогов (идемпотентно)."""
     for d in (downloads_dir(), uploads_dir(), user_data_dir(), logs_dir(), asset_uploads_dir()):
