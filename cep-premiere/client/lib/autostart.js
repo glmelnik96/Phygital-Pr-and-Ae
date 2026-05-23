@@ -143,7 +143,15 @@ function resolveSidecarDir() {
 function spawnSidecarOnce(sidecarDir) {
   if (typeof require !== 'function') return false;
   const { spawn } = require('child_process');
-  for (const py of PYTHON_CANDIDATES) {
+  const path = require('path');
+  // Prefer the project-local venv if it exists (created by scripts/install_mac.sh
+  // or `py -m venv .venv` on Windows). Falling back to system Python is only OK
+  // for dev setups where deps were installed globally.
+  const venvPy = IS_WIN
+    ? path.join(sidecarDir, '.venv', 'Scripts', 'pythonw.exe')
+    : path.join(sidecarDir, '.venv', 'bin', 'python3');
+  const candidates = [venvPy, ...PYTHON_CANDIDATES];
+  for (const py of candidates) {
     try {
       const child = spawn(py, ['-m', 'app.main'], {
         cwd: sidecarDir,

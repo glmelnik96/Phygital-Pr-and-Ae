@@ -388,8 +388,10 @@ fmtBalance: 0..999→"734", 1k..999k→"12.3k", 1m+→"1.2m", is_infinity→"∞
 3. Ждём 500ms чтобы порт 8765 освободился.
 4. Пробим `GET /health` — если живо без нашего PID-файла, значит пользователь
    запустил sidecar вручную (dev-режим) → уважаем, ничего не трогаем.
-5. Иначе `spawn(pythonw, ['-m','app.main'], {detached:true, stdio:'ignore', windowsHide:true})`,
-   пишем PID в файл.
+5. Иначе `spawn(<python>, ['-m','app.main'], {detached:true, stdio:'ignore', windowsHide:true})`,
+   пишем PID в файл. Список кандидатов на Python: сначала project-local venv
+   (`<sidecarDir>/.venv/bin/python3` или `\.venv\Scripts\pythonw.exe`), затем
+   глобальные пути (`/opt/homebrew/bin/python3`, `C:\Python311\pythonw.exe` и т.д.).
 6. Поллим `/health` до 15 секунд.
 
 **На quit Pr:** `CSXS ApplicationBeforeQuit` + `beforeunload` →

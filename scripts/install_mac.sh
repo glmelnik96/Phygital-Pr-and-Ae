@@ -102,13 +102,20 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
   fi
   ok "brew $(brew --version | head -1 | awk '{print $2}')"
 
+  # python3: Homebrew после `brew install python@3.11` НЕ перетирает /usr/bin/python3
+  # (системный 3.9). Поэтому если на PATH старый python3 — берём явный путь из
+  # brew --prefix python@3.11, иначе пользователь получит venv на 3.9.
   if ! have python3 || ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
-    info "Ставлю python@3.11 через brew"
+    info "Ставлю python@3.11 через brew (текущий python3 < 3.10)"
     brew install python@3.11
+    BREW_PY_PREFIX="$(brew --prefix python@3.11)"
+    PYBIN="$BREW_PY_PREFIX/bin/python3.11"
+    [[ -x "$PYBIN" ]] || die "brew install python@3.11 вроде прошёл, но $PYBIN не нашёлся"
+  else
+    PYBIN="$(command -v python3)"
   fi
-  PYBIN="$(command -v python3)"
-  PYVER="$($PYBIN --version 2>&1 | awk '{print $2}')"
-  ok "python3 $PYVER ($PYBIN)"
+  PYVER="$("$PYBIN" --version 2>&1 | awk '{print $2}')"
+  ok "python $PYVER ($PYBIN)"
 
   if ! have ffmpeg; then
     info "Ставлю ffmpeg через brew"
@@ -118,6 +125,7 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
 else
   warn "--skip-deps: пропускаю brew/python/ffmpeg"
   have python3 || die "python3 не найден, повтори без --skip-deps"
+  PYBIN="$(command -v python3)"
   have ffmpeg  || warn "ffmpeg не найден — frame extract будет работать только через QE DOM (нестабильно)"
 fi
 
@@ -129,22 +137,33 @@ if [[ $REINSTALL_VENV -eq 1 && -d "$VENV_DIR" ]]; then
 fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
-  info "Создаю venv → $VENV_DIR"
-  python3 -m venv "$VENV_DIR"
+  info "Создаю venv → $VENV_DIR (на базе $PYBIN)"
+  "$PYBIN" -m venv "$VENV_DIR"
 fi
 ok "venv $VENV_DIR"
 
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
+# Не активируем venv (`source activate`) — работаем напрямую через путь к
+# интерпретатору. Активация ломает `set -u` (PS1) и не нужна для модульных
+# вызовов.
+
+# venv-python: путь, который ИМЕННО будет искать autostart.js
+# (см. cep-premiere/client/lib/autostart.js — он пробует <sidecar>/.venv/bin/python3 первым).
+VENV_PY="$VENV_DIR/bin/python3"
+[[ -x "$VENV_PY" ]] || die "venv создан, но $VENV_PY не нашёлся"
 
 info "pip install -e \"sidecar[dev]\""
-python -m pip install --upgrade pip wheel >/dev/null
-python -m pip install -e "$SIDECAR_DIR[dev]"
+"$VENV_PY" -m pip install --upgrade pip wheel >/dev/null
+"$VENV_PY" -m pip install -e "$SIDECAR_DIR[dev]"
 ok "pip deps установлены"
 
 info "playwright install chromium"
-python -m playwright install chromium
+"$VENV_PY" -m playwright install chromium
 ok "Chromium для Playwright установлен"
+
+# Smoke-test: импортнём app — если упало, дальше нет смысла продолжать.
+info "Smoke-test: import app.main"
+(cd "$SIDECAR_DIR" && "$VENV_PY" -c "import app.main; print('app.main import OK')") \
+  || die "Sidecar не импортируется — проверь pip-зависимости вручную"
 
 # ── 6. CEP debug mode ───────────────────────────────────────────────────────
 info "Включаю CEP PlayerDebugMode для CSXS.11 и CSXS.12"
@@ -176,19 +195,19 @@ SESSION_FILE="$HOME/Library/Application Support/PhygitalStudio/session.json"
 
 if [[ $SKIP_RECON -eq 1 ]]; then
   warn "--skip-recon: пропускаю логин. Запусти позже:"
-  echo "    cd '$SIDECAR_DIR' && source .venv/bin/activate && python -m scripts.auth_recon"
+  echo "    cd \"$SIDECAR_DIR\" && \"$VENV_PY\" -m scripts.auth_recon"
 elif [[ -f "$SESSION_FILE" ]]; then
   info "session.json уже существует ($SESSION_FILE)"
   read -r -p "Перелогиниться заново? [y/N] " RESP
   if [[ "$RESP" =~ ^[Yy]$ ]]; then
     info "Запускаю headed Chromium"
-    (cd "$SIDECAR_DIR" && python -m scripts.auth_recon)
+    (cd "$SIDECAR_DIR" && "$VENV_PY" -m scripts.auth_recon)
   else
     ok "Использую существующую сессию"
   fi
 else
   info "Запускаю auth recon (откроется Chromium, залогинься в Phygital+)"
-  (cd "$SIDECAR_DIR" && python -m scripts.auth_recon)
+  (cd "$SIDECAR_DIR" && "$VENV_PY" -m scripts.auth_recon)
 fi
 
 # ── 9. Финал ───────────────────────────────────────────────────────────────
