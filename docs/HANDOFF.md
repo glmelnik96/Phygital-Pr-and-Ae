@@ -11,8 +11,37 @@
 истины по архитектуре — [ARCHITECTURE.md](ARCHITECTURE.md), по auth — [AUTH.md](AUTH.md),
 исходный аудит-обоснование — [AUDIT.md](AUDIT.md), план — [ROADMAP.md](ROADMAP.md).
 
-**Текущая версия: V1.1** (2026-05-23). История — [`CHANGELOG.md`](../CHANGELOG.md).
-Открытые вопросы для следующего аудита — [`NEXT_AUDIT.md`](NEXT_AUDIT.md).
+**Текущая версия:** V1.2-WIP (ветка `feat/history-ux-and-dropdown-fixes`,
+коммиты `e510421` + `cda87d3`). Последний релиз — V1.1 (2026-05-23).
+История — [`CHANGELOG.md`](../CHANGELOG.md). Открытые вопросы для следующего
+аудита — [`NEXT_AUDIT.md`](NEXT_AUDIT.md).
+
+### Активная ветка — что в ней уже сделано
+
+1. **`EnumDropdown`** — custom dropdown через `position: fixed`, решает
+   обрезку native `<select>`-popup'а CEP-iframe'ом. Применён в
+   `ParamsAccordion`, `ScenarioPicker`, `ModelPicker`.
+2. **History**: `↻ Retry` (восстанавливает draft из `job.params` →
+   Generate-таб), `📋 Copy prompt` (через `execCommand` — clipboard API в
+   CEP-iframe не secure), click-to-expand preview prompt'а.
+3. **`🗑 Delete uploaded source cache`** в History-табе (раньше иконка без
+   подписи в Header'e) — с live size-counter + явный confirm.
+4. **`GET /jobs` отдаёт `params`** (без `_init_files`). Без этого
+   client-side `canRetry` оставался false → Retry/Copy не рендерились.
+5. **`/assets/disk-usage` + `DELETE /assets/disk-cache`** в sidecar
+   (объявлены до `/{sha256}` — иначе route shadowing).
+6. **Progress propagation**: `Workflow._emit_progress()` + on_progress
+   callback из `job_runner.run_job` → `JobState.progress` обновляется
+   плавно вместо «0% → 100% на completion». Phygital'овский 0..100 / 0..1
+   нормализуется в 0..1, дубликаты подавляются.
+
+### Подводный камень при тестировании
+
+Sidecar — **отдельный Python-процесс**, перезапуск Pr на него не влияет.
+После `git pull` обязательно перезапустить uvicorn (`pkill -f uvicorn` →
+`./scripts/install_mac.sh` или ручной `python -m app.main` из `sidecar/`).
+Проверка: `lsof -iTCP:8765 -sTCP:LISTEN` должна показывать pid процесса,
+запущенного **после** последнего коммита.
 
 ## Что прочитать в новом чате (в порядке приоритета)
 

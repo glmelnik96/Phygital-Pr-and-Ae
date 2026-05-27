@@ -1,5 +1,73 @@
 # Changelog
 
+## V1.2-WIP — ветка `feat/history-ux-and-dropdown-fixes`
+
+Серия UX-фиксов и одна архитектурная починка прогресса. Релизного тега ещё
+нет; всё накатывается прямо на ветке. Релевантные коммиты: `e510421`, `cda87d3`.
+
+### Sidecar (`/sidecar/`)
+
+- **`GET /jobs` теперь возвращает `params`** (jobs.py `_state_to_dict`).
+  Раньше `params` обрезались при сериализации → CEP-клиент не мог решить,
+  есть ли prompt/scenario у job'а, и History-кнопки Retry / Copy prompt
+  никогда не рендерились. Из ответа исключается только `_init_files`
+  (server-side пути, клиенту не нужны).
+- **Прокидывание Phygital `progress` в `JobState`** (workflows/base.py
+  + video_base.py + image_gen.py + services/job_runner.py).
+  Раньше `wait()`-loop только логировал `data['progress']`, никогда не звал
+  `registry.update_status(progress=...)` → `JobState.progress` оставался
+  `None` до момента переключения статуса на `completed`, а CEP-UI показывал
+  0% всё время генерации и резко прыгал в 100% при завершении. Теперь
+  `Workflow._emit_progress()` нормализует значение Phygital (0..100 либо
+  0..1 → 0..1, clamp до 1.0), дедуплицирует одинаковые отчёты и через
+  callback `on_progress`, выставленный из `job_runner.run_job`, пушит
+  фракцию в registry. Исключения в callback логируются и подавляются,
+  чтобы не валить poll-loop.
+- **`GET /assets/disk-usage` + `DELETE /assets/disk-cache`** (routers/assets.py).
+  Возвращают `{count, total_bytes}` и удаляют `*.bin` из `asset_uploads/`
+  по запросу UI. Объявлены **до** `/{sha256}`-route'а, иначе FastAPI
+  ловил `disk-cache` как валидный sha256 → `cache.delete("disk-cache")`
+  → 404.
+
+### CEP Premiere panel (`/cep-premiere/`)
+
+- **`EnumDropdown`** (`components/EnumDropdown.js`) — custom dropdown через
+  `position: fixed` + viewport-aware placement (авто-flip вверх если внизу
+  <120 px, внутренний `max-height: 240px` со скроллом). Решает баг
+  «нативный `<select>`-popup обрезается CEP-iframe'ом» → пользователь не
+  мог выбрать опции в маленьком окне. Применён комплексно к
+  `ParamsAccordion` (все enum-параметры включая Aspect ratio),
+  `ScenarioPicker`, `ModelPicker`.
+- **Retry / Copy prompt в History** (`components/JobCard.js`). Для
+  completed/failed/canceled jobs с сохранённым prompt'ом или сценарием:
+  - `↻ Retry` — восстанавливает draft из `job.params`, переключает на
+    Generate-таб (re-pick files, всё остальное — из params).
+  - `📋 Copy prompt` — сначала пытается `document.execCommand('copy')`
+    через off-screen textarea (CEP-iframe — не secure context,
+    `navigator.clipboard.writeText` бросает «Write permission denied»),
+    `clipboard` API остаётся как fallback.
+  - Click-to-expand preview prompt'a.
+- **Disk-cache cleanup в History** (`components/HistoryTab.js`). Кнопка
+  «🗑 Delete uploaded source cache (asset_uploads)» с live-счётчиком
+  `N files · X MB` и явным confirm-диалогом про то, что результаты в
+  History не затрагиваются. Раньше кнопка-иконка жила в Header'e без
+  подписи — было непонятно, что именно удаляется.
+
+### Tests
+
+- Sidecar: 171 passed (excluding HAR-dependent suites), 12 новых для
+  progress propagation (normalize edge cases + emit dedup + integration
+  через `_FakeClient` на `VideoWorkflow` и `ImageGenWorkflow`).
+- CEP (Vitest): 67 passed, 2 skipped.
+
+### Известное ограничение
+
+После любого изменения sidecar'а нужно **явно перезапустить Python-процесс**.
+Перезагрузка панели или Premiere Pro на sidecar не влияет — он работает
+отдельным процессом на `127.0.0.1:8765`. Если progress всё ещё 0%→100% —
+проверь `lsof -iTCP:8765 -sTCP:LISTEN`: запущенный процесс должен быть
+тот, что собран после коммита `cda87d3`.
+
 ## V1.1 — 2026-05-23
 
 ### Sidecar (`/sidecar/`)
