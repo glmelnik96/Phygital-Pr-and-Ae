@@ -17,7 +17,7 @@ from typing import Any
 from loguru import logger
 
 from app.phygital_client.models import GenerationJob
-from app.workflows.base import Workflow
+from app.workflows.base import Workflow, _normalize_progress
 
 
 PENDING_STATUSES = {
@@ -64,6 +64,9 @@ class VideoWorkflow(Workflow):
         logger.info(f"{self.NODE_NAME}: posted config_history for task {task_id}")
         return str(task_id)
 
+    # Видео обычно длится 60-180s в running-фазе — берём середину как expected.
+    EXPECTED_DURATION_S: float = 90.0
+
     async def wait(
         self,
         job_id: str,
@@ -71,22 +74,42 @@ class VideoWorkflow(Workflow):
         poll_interval: float = 1.5,
     ) -> GenerationJob:
         task_id = int(job_id)
-        deadline = asyncio.get_event_loop().time() + timeout
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
         last_status: str | None = None
         last_progress: float | None = None
+        running_started_at: float | None = None
+        logged_first = False
 
-        while asyncio.get_event_loop().time() < deadline:
+        while loop.time() < deadline:
             data = await self.client.task_status(task_id)
             status = (data.get("status") or "").lower()
+            # Diagnostic: один раз логируем полный список ключей ответа Phygital,
+            # чтобы увидеть, отдаёт ли API реальный `progress`/`percent`/etc.
+            if not logged_first:
+                logger.info(
+                    f"{self.NODE_NAME} task {task_id} first poll: keys={list(data.keys())} "
+                    f"progress={data.get('progress')!r} percent={data.get('percent')!r}"
+                )
+                logged_first = True
             if status != last_status:
                 logger.info(
                     f"{self.NODE_NAME} task {task_id}: {status} "
                     f"(position={data.get('position')}, progress={data.get('progress')})"
                 )
                 last_status = status
-            # Прокидываем progress наверх через registry: без этого UI висит на
-            # 0% всю генерацию и резко прыгает в 100% при completion.
-            last_progress = await self._emit_progress(data.get("progress"), last_progress)
+                # Засекаем момент перехода в running — отсчёт synth-progress.
+                if status in {"running", "in_progress"} and running_started_at is None:
+                    running_started_at = loop.time()
+            # Real progress из Phygital в приоритете; если нет — synth по elapsed.
+            real = data.get("progress")
+            value = None
+            real_norm = _normalize_progress(real)
+            if real_norm is not None:
+                value = real_norm
+            elif status in {"running", "in_progress"}:
+                value = self._synth_progress(running_started_at, loop.time())
+            last_progress = await self._push_progress(value, last_progress)
 
             if status in DONE_STATUSES:
                 link_ids = self._extract_link_ids(data.get("outputs") or [])

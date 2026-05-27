@@ -20,7 +20,7 @@ from loguru import logger
 
 from app.phygital_client.api import PhygitalClient
 from app.phygital_client.models import GenerationJob
-from app.workflows.base import Workflow
+from app.workflows.base import Workflow, _normalize_progress
 
 NODE_GLOBAL_ID = "Phygital Creator/phygc-rnd-gemini-image-api"
 NODE_NAME = "Nano Banana"
@@ -44,6 +44,7 @@ class ImageGenWorkflow(Workflow):
     """
 
     workflow_id = str(WORKFLOW_SCHEMA_ID)
+    EXPECTED_DURATION_S: float = 25.0  # image-gen быстрее видео
 
     def __init__(
         self,
@@ -207,18 +208,39 @@ class ImageGenWorkflow(Workflow):
         poll_interval: float = 1.5,
     ) -> GenerationJob:
         task_id = int(job_id)
-        deadline = asyncio.get_event_loop().time() + timeout
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
         last_status: str | None = None
         last_progress: float | None = None
+        running_started_at: float | None = None
+        logged_first = False
 
-        while asyncio.get_event_loop().time() < deadline:
+        while loop.time() < deadline:
             data = await self.client.task_status(task_id)
             status = (data.get("status") or "").lower()
+            # Diagnostic: один раз — полный keys + сырые progress/percent.
+            # Так увидим, отдаёт ли Phygital реальный progress или только position.
+            if not logged_first:
+                logger.info(
+                    f"image task {task_id} first poll: keys={list(data.keys())} "
+                    f"progress={data.get('progress')!r} percent={data.get('percent')!r}"
+                )
+                logged_first = True
             if status != last_status:
                 logger.info(f"task {task_id}: {status} (position={data.get('position')}, progress={data.get('progress')})")
                 last_status = status
-            # См. video_base.wait: без emit_progress UI зависает на 0%.
-            last_progress = await self._emit_progress(data.get("progress"), last_progress)
+                if status in {"running", "in_progress"} and running_started_at is None:
+                    running_started_at = loop.time()
+            # Real → synth fallback: см. video_base.wait для подробного объяснения.
+            real_norm = _normalize_progress(data.get("progress"))
+            value: float | None
+            if real_norm is not None:
+                value = real_norm
+            elif status in {"running", "in_progress"}:
+                value = self._synth_progress(running_started_at, loop.time())
+            else:
+                value = None
+            last_progress = await self._push_progress(value, last_progress)
 
             if status in DONE_STATUSES:
                 link_ids = self._extract_link_ids(data.get("outputs") or [])

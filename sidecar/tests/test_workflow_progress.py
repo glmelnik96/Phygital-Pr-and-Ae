@@ -191,6 +191,53 @@ async def test_video_wait_propagates_progress(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_wait_falls_back_to_synth_when_api_omits_progress():
+    """Если Phygital не отдаёт `progress` (только status/position) — должен
+    включиться synth по elapsed-time, чтобы UI не висел на 0%."""
+    from app.workflows.image_gen import ImageGenWorkflow
+
+    # Клиент с искусственной задержкой 10ms между poll'ами — иначе на быстрой
+    # машине loop.time() даёт суб-микросекундные дельты и synth не вырастает.
+    class _SlowClient:
+        def __init__(self, sequence):
+            self._seq = list(sequence)
+            self._i = 0
+        async def task_status(self, task_id):
+            await asyncio.sleep(0.01)
+            i = min(self._i, len(self._seq) - 1)
+            self._i += 1
+            return self._seq[i]
+        async def get_download_links(self, ids):
+            return [{"download_link": f"http://example.com/{i}"} for i in ids]
+
+    import asyncio
+    seq = [
+        {"status": "queued", "position": 3},
+        {"status": "running", "position": 0},
+        {"status": "running"},
+        {"status": "running"},
+        {"status": "running"},
+        {"status": "running"},
+        {"status": "done", "outputs": [{"id": [1]}]},
+    ]
+    client = _SlowClient(seq)
+    wf = ImageGenWorkflow(client=client)  # type: ignore[arg-type]
+    # 30ms expected — после ~6 polls в running (60ms) synth дойдёт до cap.
+    wf.EXPECTED_DURATION_S = 0.03
+
+    received: list[float] = []
+    async def cb(p: float) -> None:
+        received.append(p)
+    wf.on_progress = cb
+
+    result = await wf.wait("0", timeout=5.0, poll_interval=0.0)
+    assert result.status == "completed"
+    assert len(received) >= 1, f"synth-progress не сработал: received={received}"
+    assert all(0.0 <= p <= 0.95 for p in received), received
+    assert any(p > 0.5 for p in received), f"synth не вырос: {received}"
+
+
+@pytest.mark.asyncio
 async def test_image_wait_propagates_progress():
     """image_gen.wait() должен звать on_progress на каждом изменении."""
     from app.workflows.image_gen import ImageGenWorkflow

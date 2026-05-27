@@ -38,6 +38,12 @@ class Workflow(abc.ABC):
     """Базовый интерфейс: подготовить payload → submit → дождаться результата."""
 
     workflow_id: str = ""
+    # Эвристика для synthetic progress: сколько в среднем длится этот воркфлоу
+    # в running-фазе. Реальный progress из API (если есть) всегда побеждает —
+    # это только fallback когда Phygital ничего не отдаёт. Подклассы могут
+    # переопределять (image ~25s, video ~90s).
+    EXPECTED_DURATION_S: float = 60.0
+    SYNTH_PROGRESS_CAP: float = 0.95  # не дорисовываем до 100% — это сделает completion
 
     def __init__(self, client: PhygitalClient) -> None:
         self.client = client
@@ -65,7 +71,16 @@ class Workflow(abc.ABC):
         Ошибка в callback не валит wait-loop — логируем и продолжаем.
         """
         value = _normalize_progress(raw)
-        if value is None or value == last:
+        return await self._push_progress(value, last)
+
+    async def _push_progress(self, value: float | None, last: float | None) -> float | None:
+        """Низкоуровневый push: значение уже посчитано (real или synth).
+        Дедуплицируем (с шагом 0.005 — иначе synth дёргает callback каждый poll).
+        """
+        if value is None:
+            return last
+        # Шаг 0.5% — иначе synth-режим бомбит registry на каждом poll'е.
+        if last is not None and abs(value - last) < 0.005:
             return last
         if self.on_progress is not None:
             try:
@@ -73,3 +88,19 @@ class Workflow(abc.ABC):
             except Exception:
                 logger.exception("on_progress callback failed (suppressed)")
         return value
+
+    def _synth_progress(
+        self,
+        running_started_at: float | None,
+        now: float,
+    ) -> float | None:
+        """Синтетический progress по elapsed-time. Возвращает None если
+        running ещё не начинался — иначе linear ramp до SYNTH_PROGRESS_CAP.
+        Используется только когда Phygital не отдаёт реальный progress.
+        """
+        if running_started_at is None:
+            return None
+        elapsed = max(0.0, now - running_started_at)
+        # Floor 0.001 — реальные EXPECTED у нод 25..90s, но тесты используют
+        # суб-секундные значения; floor 1.0 ломал бы их при том же расчёте.
+        return min(elapsed / max(0.001, self.EXPECTED_DURATION_S), self.SYNTH_PROGRESS_CAP)
