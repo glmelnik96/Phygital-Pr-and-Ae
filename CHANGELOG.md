@@ -23,6 +23,14 @@
   callback `on_progress`, выставленный из `job_runner.run_job`, пушит
   фракцию в registry. Исключения в callback логируются и подавляются,
   чтобы не валить poll-loop.
+- **Synth-progress fallback + диагностический first-poll лог** (`197cb94`,
+  workflows/base.py `_synth_progress` / `EXPECTED_DURATION_S`).
+  Если Phygital не отдаёт `progress` (только status/position), `wait()`
+  засекает момент перехода в running и рисует linear ramp до
+  `SYNTH_PROGRESS_CAP=0.95` по elapsed (image=25s, video=90s). Реальный
+  API-progress всегда побеждает synth. На первом poll'е логируется полный
+  список keys ответа task_status — диагностика, отдаёт ли бэкенд реально
+  поле `progress` или synth единственно возможный путь.
 - **`GET /assets/disk-usage` + `DELETE /assets/disk-cache`** (routers/assets.py).
   Возвращают `{count, total_bytes}` и удаляют `*.bin` из `asset_uploads/`
   по запросу UI. Объявлены **до** `/{sha256}`-route'а, иначе FastAPI

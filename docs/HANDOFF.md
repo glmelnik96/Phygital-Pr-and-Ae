@@ -12,7 +12,7 @@
 исходный аудит-обоснование — [AUDIT.md](AUDIT.md), план — [ROADMAP.md](ROADMAP.md).
 
 **Текущая версия:** V1.2-WIP (ветка `feat/history-ux-and-dropdown-fixes`,
-коммиты `e510421` + `cda87d3`). Последний релиз — V1.1 (2026-05-23).
+коммиты `e510421` + `cda87d3` + `197cb94`). Последний релиз — V1.1 (2026-05-23).
 История — [`CHANGELOG.md`](../CHANGELOG.md). Открытые вопросы для следующего
 аудита — [`NEXT_AUDIT.md`](NEXT_AUDIT.md).
 
@@ -34,6 +34,11 @@
    callback из `job_runner.run_job` → `JobState.progress` обновляется
    плавно вместо «0% → 100% на completion». Phygital'овский 0..100 / 0..1
    нормализуется в 0..1, дубликаты подавляются.
+7. **Synth-progress fallback + first-poll diagnostic** (`197cb94`).
+   Если Phygital не отдаёт `progress` — рисуем linear ramp по elapsed
+   (image=25s / video=90s, cap 0.95). Реальный API-progress всегда
+   побеждает. На первом poll'е логируем полный список keys ответа
+   task_status — диагностика: точно ли бэкенд молчит.
 
 ### Подводный камень при тестировании
 
