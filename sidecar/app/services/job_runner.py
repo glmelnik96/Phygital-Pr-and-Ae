@@ -146,6 +146,12 @@ class JobRunner:
             else:
                 workflow = workflow_class(client)
             await self.registry.update_status(job_id, status="running")
+            # Прокидываем progress 0..1 из poll-цикла воркфлоу в registry,
+            # чтобы CEP-клиент видел реальный прогресс, а не 0%→100%.
+            # Status оставляем "running" — обновляем только progress поле.
+            async def _on_progress(p: float, _job_id: str = job_id) -> None:
+                await self.registry.update_status(_job_id, status="running", progress=p)
+            workflow.on_progress = _on_progress
             gen_job: GenerationJob = await workflow.run(**params)
 
             if gen_job.status == "completed":

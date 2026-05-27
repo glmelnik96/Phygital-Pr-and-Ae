@@ -209,6 +209,7 @@ class ImageGenWorkflow(Workflow):
         task_id = int(job_id)
         deadline = asyncio.get_event_loop().time() + timeout
         last_status: str | None = None
+        last_progress: float | None = None
 
         while asyncio.get_event_loop().time() < deadline:
             data = await self.client.task_status(task_id)
@@ -216,6 +217,8 @@ class ImageGenWorkflow(Workflow):
             if status != last_status:
                 logger.info(f"task {task_id}: {status} (position={data.get('position')}, progress={data.get('progress')})")
                 last_status = status
+            # См. video_base.wait: без emit_progress UI зависает на 0%.
+            last_progress = await self._emit_progress(data.get("progress"), last_progress)
 
             if status in DONE_STATUSES:
                 link_ids = self._extract_link_ids(data.get("outputs") or [])

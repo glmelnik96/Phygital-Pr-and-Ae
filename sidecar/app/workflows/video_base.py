@@ -73,6 +73,7 @@ class VideoWorkflow(Workflow):
         task_id = int(job_id)
         deadline = asyncio.get_event_loop().time() + timeout
         last_status: str | None = None
+        last_progress: float | None = None
 
         while asyncio.get_event_loop().time() < deadline:
             data = await self.client.task_status(task_id)
@@ -83,6 +84,9 @@ class VideoWorkflow(Workflow):
                     f"(position={data.get('position')}, progress={data.get('progress')})"
                 )
                 last_status = status
+            # Прокидываем progress наверх через registry: без этого UI висит на
+            # 0% всю генерацию и резко прыгает в 100% при completion.
+            last_progress = await self._emit_progress(data.get("progress"), last_progress)
 
             if status in DONE_STATUSES:
                 link_ids = self._extract_link_ids(data.get("outputs") or [])
