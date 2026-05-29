@@ -18,7 +18,7 @@ Windows:
 
 1. `reg add HKCU\Software\Adobe\CSXS.11 /v PlayerDebugMode /t REG_SZ /d 1 /f`
 2. Симлинк (CMD admin):
-   `mklink /D "%AppData%\Adobe\CEP\extensions\PhygitalStudioAE" "C:\Users\Глеб\Documents\Phygital-Adobe-Studio\cep-ae"`
+   `mklink /D "%AppData%\Adobe\CEP\extensions\PhygitalStudioAE" "%USERPROFILE%\Documents\Phygital-Adobe-Studio\cep-ae"`
 3. Полный рестарт After Effects.
 4. Window → Extensions → Phygital Studio.
 5. DevTools: `http://localhost:8098/`.

@@ -82,8 +82,8 @@ export function mimeToExt(mime) {
 }
 
 // Convert a native disk path to a file:// URL that CEF can render in <img>.
-// Windows: 'C:\\Users\\Глеб\\...\\x.png' → 'file:///C:/Users/%D0%93.../x.png'.
-// encodeURI handles spaces and Cyrillic; we keep '/' and ':' intact.
+// Windows: 'C:\\Users\\<name>\\...\\x.png' → 'file:///C:/Users/%XX.../x.png'.
+// encodeURI handles spaces and non-ASCII; we keep '/' and ':' intact.
 export function localPathToFileUrl(p) {
   if (!p) return null;
   const norm = String(p).replace(/\\/g, '/');

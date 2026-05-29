@@ -75,7 +75,7 @@ def test_write_does_not_leave_tmp_files(tmp_path: Path):
 
 def test_write_handles_unicode(tmp_path: Path):
     p = tmp_path / "session.json"
-    payload = {"name": "Глеб", "data": "日本語"}
+    payload = {"name": "Юникод", "data": "日本語"}
     write_secure_json(p, payload)
     assert read_secure_json(p) == payload
 

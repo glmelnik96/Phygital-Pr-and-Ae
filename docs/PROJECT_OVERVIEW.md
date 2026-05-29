@@ -486,7 +486,7 @@ PID-файл на диске для cross-reload state.
 руками или autostart'ом панели**, не из агентского терминала.
 
 **Cyrillic-пути и Pr import (исторический pitfall).** В Pr ≤ 2024.1 на Windows
-`ProjectItem.importFiles(['C:\\Users\\Глеб\\…'])` падал с MBCS-ошибкой и
+`ProjectItem.importFiles(['C:\\Users\\<кириллица>\\…'])` падал с MBCS-ошибкой и
 требовал ASCII-staging (`disk.js stageToAscii` → `C:\ProgramData\PhygitalStudio\imports\`).
 В V1.1 staging убран: Pr 2024.2+ (Win) и Pr 2024+ (Mac) ест UTF-8 пути
 напрямую. Если поддерживаем Pr ≤ 2024.1 — вернуть staging локально.

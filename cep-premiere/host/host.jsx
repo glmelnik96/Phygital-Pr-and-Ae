@@ -249,7 +249,7 @@ function getSourceMonitorItem() {
 }
 
 // QE DOM legacy на Windows работает через MBCS — если путь содержит non-ASCII
-// (типичный кейс: имя юзера на кириллице, тогда Folder.temp = C:\Users\Глеб\
+// (типичный кейс: имя юзера на кириллице, тогда Folder.temp = C:\Users\<имя>\
 // AppData\Local\Temp), методы exportFrameJPEG/PNG/TIFF/Targa/DPX молча
 // возвращаются БЕЗ создания файла и БЕЗ exception. Поэтому выбираем
 // ASCII-safe директорию в первую очередь.
@@ -276,8 +276,8 @@ function _nativePath(p) {
 }
 
 // На Mac часть билдов Pr (особенно при включённом AppleScript bridge или
-// старых проектах) возвращает HFS-форму "Macintosh HD:Users:gleb:file.mov"
-// вместо POSIX "/Users/gleb/file.mov". Node fs / sidecar этот формат не
+// старых проектах) возвращает HFS-форму "Macintosh HD:Users:user:file.mov"
+// вместо POSIX "/Users/user/file.mov". Node fs / sidecar этот формат не
 // понимают. Используем ExtendScript File API — у File есть .fsName,
 // который на Mac ВСЕГДА POSIX (валидно и для HFS-input, и для POSIX-input).
 // Если File не существует — fallback ручное преобразование (HFS → /Volumes/X/...).
@@ -917,7 +917,7 @@ function _binByName(name) {
 function _normPathForCompare(p) {
   if (!p) return '';
   // На Mac getMediaPath() части билдов Pr (AppleScript bridge / старые проекты)
-  // возвращает HFS-форму "Macintosh HD:Users:gleb:file.mov", а targetPath из
+  // возвращает HFS-форму "Macintosh HD:Users:user:file.mov", а targetPath из
   // importToBin приходит POSIX-формой "/Users/...". Без нормализации needle
   // не совпадал с p и _findImportedByPath давал false-negative → "no new item
   // after 8s poll" при успешном на самом деле импорте.

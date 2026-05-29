@@ -51,13 +51,13 @@ git clone <repo-url> Phygital-Adobe-Studio
 cd Phygital-Adobe-Studio
 ```
 
-Если SSH-ключ в `~/.ssh/` не видится OpenSSH (типичная проблема с
-кириллицей в имени профиля), используется такой workaround:
+Если SSH-ключ в `~/.ssh/` не виден OpenSSH (например, из-за нелатинских
+символов в имени профиля Windows), временно зеркало `~/.ssh/` в путь
+без таких символов и указать на него через `GIT_SSH_COMMAND`:
 ```powershell
-$env:GIT_SSH_COMMAND = "ssh -i C:\ssh-home\.ssh\id_ed25519 -o IdentitiesOnly=yes"
+$env:GIT_SSH_COMMAND = "ssh -i <PATH_TO_MIRROR>\.ssh\<key_name> -o IdentitiesOnly=yes"
 git clone git@github.com:<owner>/<repo>.git Phygital-Adobe-Studio
 ```
-(`C:\ssh-home\.ssh\` — это зеркало `~/.ssh/`, см. memory `reference_github_remote`.)
 
 ---
 
@@ -123,7 +123,7 @@ mklink /D "%APPDATA%\Adobe\CEP\extensions\com.phygital.studio.pr" ^
           "%USERPROFILE%\Documents\Phygital-Adobe-Studio\cep-premiere"
 ```
 
-Кириллица в `%USERPROFILE%` (`C:\Users\Глеб\…`) работает — `autostart.js`
+Кириллица в `%USERPROFILE%` (`C:\Users\<имя>\…`) работает — `autostart.js`
 делает `fs.realpathSync()` и сидкар стартует с реальным cwd, а не с символлинка.
 
 ---

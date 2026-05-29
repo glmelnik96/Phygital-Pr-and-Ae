@@ -88,7 +88,7 @@ def _validate_media_source(source_path: str) -> Path:
 
     # ffmpeg protocol-prefix: "concat:", "subfile:", "crypto:", "tcp:" и т.п.
     # Раньше отбрасывали ЛЮБОЕ двоеточие в первом сегменте (кроме Win-drive) —
-    # ломалось на Mac HFS-форме `Macintosh HD:Users:gleb:video.mov`, которую
+    # ломалось на Mac HFS-форме `Macintosh HD:Users:user:video.mov`, которую
     # Pr на части билдов возвращает из getMediaPath() (особенно при включённом
     # AppleScript bridge / на старых проектах). Теперь whitelist'им только
     # известные ffmpeg-протоколы — defence-in-depth остаётся через

@@ -1,6 +1,6 @@
 """Vendor copy с Phygital-bot.
 
-Источник по умолчанию: C:/Users/Глеб/Documents/Phygital-bot/
+Источник по умолчанию: ~/Documents/Phygital-bot/ (рядом с этим репо).
 Переопределяется флагом --source.
 
 Что копируется:
@@ -73,18 +73,17 @@ def get_source_commit(source: Path) -> str:
         return "unknown"
 
 
-def write_init(dst_root: Path, source: Path, commit: str) -> None:
+def write_init(dst_root: Path, commit: str) -> None:
     """app/phygital_client/__init__.py с SOURCE_COMMIT."""
     init_path = dst_root / "app" / "phygital_client" / "__init__.py"
     init_path.write_text(
         f'"""Vendor copy from Phygital-bot.\n\n'
-        f'Source: {source.as_posix()}\n'
+        f'Source: Phygital-bot (sibling repo, default path: ~/Documents/Phygital-bot)\n'
         f'Commit: {commit}\n'
         f'Sync: run `python -m scripts.sync_from_bot --apply` to refresh.\n'
         f'\n'
         f'Не редактируй вручную — изменения будут затёрты при следующем sync.\n'
         f'"""\n'
-        f'SOURCE = "{source.as_posix()}"\n'
         f'SOURCE_COMMIT = "{commit}"\n',
         encoding="utf-8",
     )
@@ -97,8 +96,8 @@ def main() -> None:
     ap.add_argument(
         "--source",
         type=Path,
-        default=Path("C:/Users/Глеб/Documents/Phygital-bot"),
-        help="Путь к Phygital-bot репозиторию",
+        default=Path.home() / "Documents" / "Phygital-bot",
+        help="Путь к Phygital-bot репозиторию (по умолчанию ~/Documents/Phygital-bot)",
     )
     ap.add_argument("--apply", action="store_true", help="Действительно скопировать (без флага — dry-run).")
     args = ap.parse_args()
@@ -132,7 +131,7 @@ def main() -> None:
             dst.write_text(rewritten, encoding="utf-8")
 
     if args.apply:
-        write_init(repo_root, source, commit)
+        write_init(repo_root, commit)
         print()
         print(f"  WROTE app/phygital_client/__init__.py with SOURCE_COMMIT={commit}")
         print()

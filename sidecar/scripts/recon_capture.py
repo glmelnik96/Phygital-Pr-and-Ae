@@ -6,9 +6,9 @@
 с поправкой на наш проект: вывод в cwd (а не в sandbox Claude), отдельный
 recon-user-data чтобы не конфликтовать с user_data сайдкара.
 
-ЗАПУСК (из твоего PowerShell, НЕ из Claude):
+ЗАПУСК (из своего PowerShell, НЕ из агентского терминала):
 
-    cd C:\\Users\\Глеб\\Documents\\Phygital-Adobe-Studio\\sidecar
+    cd <repo>\\sidecar
     .venv\\Scripts\\activate
     python -m scripts.recon_capture
 

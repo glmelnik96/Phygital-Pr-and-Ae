@@ -79,14 +79,14 @@ Sidecar — **отдельный Python-процесс**, перезапуск P
 
 | Путь | Зачем нужен |
 |---|---|
-| `C:\Users\Глеб\Documents\Phygital-bot\` | Источник кода для sidecar: `client/`, `workflows/`, `recon/` |
-| `C:\Users\Глеб\Documents\Phygital_MCP\` | Альтернативный transport на ту же auth, возможный backend в будущем |
-| `C:\Users\Глеб\Documents\Adobe-Extensions-Audit\ext_pr\` | Reference: CSXS-манифест Pr CEP 12, bridge-паттерн |
-| `C:\Users\Глеб\Documents\Adobe-Extensions-Audit\ext_main\` | Reference: AE CEP, готовый `import_file`+`add_to_comp` |
+| `<USERPROFILE>\Documents\Phygital-bot\` | Источник кода для sidecar: `client/`, `workflows/`, `recon/` |
+| `<USERPROFILE>\Documents\Phygital_MCP\` | Альтернативный transport на ту же auth, возможный backend в будущем |
+| `<USERPROFILE>\Documents\Adobe-Extensions-Audit\ext_pr\` | Reference: CSXS-манифест Pr CEP 12, bridge-паттерн |
+| `<USERPROFILE>\Documents\Adobe-Extensions-Audit\ext_main\` | Reference: AE CEP, готовый `import_file`+`add_to_comp` |
 
 ## Правила (для агента)
 
-- **Не коммитить без явной отмашки.** См. `~/.claude/projects/.../memory/feedback_commits.md`.
+- **Не коммитить без явной отмашки.** Любой `git commit` / `git push` — только после явного "коммит" / "пуш" от пользователя на конкретное изменение.
 - **UI без декоративных эмодзи.** Кнопки/статусы — текстом. См. `feedback_ui_minimal_emoji.md`.
 - **Windows-конвенции.** `.bat` — ASCII-only (cp866), stdout python — `reconfigure(encoding='utf-8')`.
   См. `windows_lessons.md`, `windows_port_conventions.md`.

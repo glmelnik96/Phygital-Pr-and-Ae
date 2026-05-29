@@ -44,11 +44,11 @@ docs/           аудит, архитектура, auth, roadmap, handoff
 
 ## Источники переиспользуемого кода (вне этого репо)
 
-- `C:\Users\Глеб\Documents\Phygital-bot\` — `client/` + `workflows/` = база sidecar'а.
-- `C:\Users\Глеб\Documents\Phygital_MCP\` — альтернативный transport (MCP) поверх той же auth-логики.
-- `C:\Users\Глеб\Documents\Adobe-Extensions-Audit\ext_pr\` — клон Extensions-LLM-Chat_Pr,
+- `<USERPROFILE>\Documents\Phygital-bot\` — `client/` + `workflows/` = база sidecar'а.
+- `<USERPROFILE>\Documents\Phygital_MCP\` — альтернативный transport (MCP) поверх той же auth-логики.
+- `<USERPROFILE>\Documents\Adobe-Extensions-Audit\ext_pr\` — клон Extensions-LLM-Chat_Pr,
   справочно (CSXS-манифест, bridge-паттерн CEP↔ExtendScript).
-- `C:\Users\Глеб\Documents\Adobe-Extensions-Audit\ext_main\` — клон Extensions-LLM-Chat (AE),
+- `<USERPROFILE>\Documents\Adobe-Extensions-Audit\ext_main\` — клон Extensions-LLM-Chat (AE),
   справочно (готовые `import_file`+`add_to_comp` в `host/index.jsx`).
 
 Эти проекты — независимые продукты. Phygital-Adobe-Studio их не модифицирует, только

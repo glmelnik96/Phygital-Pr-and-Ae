@@ -563,7 +563,7 @@ def main() -> None:
     ap.add_argument(
         "--source",
         type=Path,
-        default=Path("C:/Users/Глеб/Documents/Phygital-bot"),
+        default=Path.home() / "Documents" / "Phygital-bot",
         help="Путь к Phygital-bot репозиторию",
     )
     ap.add_argument("--apply", action="store_true", help="Действительно скопировать (без флага — dry-run).")

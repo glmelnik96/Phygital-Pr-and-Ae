@@ -2828,17 +2828,14 @@ Walk through README §"Manual E2E checklist". Record pass/fail per item in vault
 
 - [ ] **Step 9.4: Write vault closure note**
 
-Write to `C:/Users/Глеб/Downloads/2nd brain/01 Projects/Phygital Adobe Studio/Sub-project B — закрытие Pr-панель <date>.md` with frontmatter (tags, status: закрыт), summary of what was built, list of completed/skipped manual items, and links to:
-- `[[Phygital Adobe Studio]]`
-- `[[Live E2E все 5 узлов 2026-05-21]]`
-- `[[Sub-project D — закрытие видео-воркфлоу 2026-05-21]]`
+Write a sub-project closure note in the personal knowledge vault (path varies per setup) with frontmatter (tags, status: закрыт), summary of what was built, list of completed/skipped manual items, and links to the related project notes.
 
-Update `[[Phygital Adobe Studio]]` folder note: status, 🎯 Next action (→ sub-project C, AE-панель), artifact table.
-Update `[[Экосистема Claude]]` master index with chronology entry.
+Update the project folder note: status, 🎯 Next action (→ sub-project C, AE-панель), artifact table.
+Update the master ecosystem index with a chronology entry.
 
 - [ ] **Step 9.5: Update project memory**
 
-Edit `C:/Users/Глеб/.claude/projects/C--Users------Documents-Phygital-Adobe-Studio/memory/project_adobe_studio.md` to add a "Sub-project B (Pr panel) — DONE <date>" bullet with key implementation details (Preact + htm stack, files structure, manual E2E pass count, anything unexpected encountered).
+Update agent project memory (path-private) to add a "Sub-project B (Pr panel) — DONE <date>" bullet with key implementation details (Preact + htm stack, files structure, manual E2E pass count, anything unexpected encountered).
 
 - [ ] **Step 9.6: Commit (gated)**
 

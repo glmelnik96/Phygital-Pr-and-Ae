@@ -90,13 +90,13 @@ def test_extract_frame_rejects_protocol_prefix(client, evil_path):
 
 
 def test_mac_hfs_path_not_treated_as_protocol(client, tmp_path):
-    """Mac HFS-form "Macintosh HD:Users:gleb:video.mov" — НЕ должно
+    """Mac HFS-form "Macintosh HD:Users:user:video.mov" — НЕ должно
     быть protocol_prefix_not_allowed. Раньше любой ':' в первом сегменте
     отбрасывался, ломая bin/timeline пик на части Mac-билдов Pr."""
     # На Win этот путь не существует, упадёт на source_not_found —
     # но не на protocol-check'е.
     r = client.post("/clip-video", json={
-        "source_path": "Macintosh HD:Users:gleb:video.mov",
+        "source_path": "Macintosh HD:Users:user:video.mov",
         "in_sec": 0, "out_sec": 1,
     })
     assert r.status_code == 400
