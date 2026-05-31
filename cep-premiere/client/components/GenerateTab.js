@@ -27,6 +27,32 @@ function isImageSlotName(name) {
   return !/^(ref_vid|ref_audio|video)$/.test(name);
 }
 
+// Собрать file_obj_id+dimensions всех загруженных image-картинок из draft.slots
+// для текущего сценария. Используется PromptInput'ом, чтобы передать референс
+// в /enhance (i2v/i2v enhancer цепляется за визуальный контекст).
+//
+// Порядок: как в `slots` из getSlotsForScenario (стабильный для тестов).
+// Скипаем: video-слоты, ещё-не-загруженные (нет asset.file_obj_id), failed.
+// dims берём из asset.{width,height} — Phygital img2img-quirk требует
+// параллельных list'ов equal length, поэтому одинокий fid без dims = drop.
+function collectImageRefs(slots, slotValues) {
+  const ids = [];
+  const dims = [];
+  for (const slot of slots) {
+    if (!isImageSlotName(slot.name)) continue;
+    const raw = slotValues[slot.name];
+    const items = slot.kind === 'array' ? (raw || []) : (raw ? [raw] : []);
+    for (const it of items) {
+      const a = it && it.asset;
+      if (!a || a.file_obj_id == null) continue;
+      if (a.width == null || a.height == null) continue;
+      ids.push(a.file_obj_id);
+      dims.push({ width: a.width, height: a.height });
+    }
+  }
+  return { ids, dims };
+}
+
 function isVideoSlotName(name) {
   return /^(ref_vid|video)$/.test(name);
 }
@@ -361,7 +387,8 @@ export function GenerateTab({ snap, actions, api, store, onSubmitted }) {
         requiredSlots=${slots}
         onChange=${s => actions.setScenario(s, { videoNodes })} />
       ${showPrompt
-        ? html`<${PromptInput} draft=${draft} actions=${actions} api=${api} />`
+        ? html`<${PromptInput} draft=${draft} actions=${actions} api=${api}
+                imageRefs=${collectImageRefs(slots, draft.slots)} />`
         : null}
       <${SlotList} slots=${slots} values=${draft.slots}
         onPick=${onPick} onClear=${onClear} />

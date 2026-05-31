@@ -35,6 +35,12 @@ NODE_GLOBAL_ID = "Phygital Creator/phygc-rnd-gptimage-api"
 NODE_NAME = "GPT Image"
 SERVICE_VERSION = "0.0.29"
 
+# OpenAI gpt-image-1 принимает до 16 reference images в одном edit-вызове.
+# Phygital фронт лимит явно не валидирует — проверял HAR'ом: 17+ просто
+# протухает на стороне OpenAI ~30s без человекочитаемой ошибки. Лучше
+# фейлить локально с понятным сообщением.
+MAX_INPUT_IMAGES = 16
+
 
 class GPTImageWorkflow(Workflow):
     """GPT Image API — text→image и image→image в одном классе."""
@@ -191,6 +197,11 @@ class GPTImageWorkflow(Workflow):
     async def upload_images(
         self, paths: list[str | Path]
     ) -> tuple[list[int], list[dict[str, int]]]:
+        if len(paths) > MAX_INPUT_IMAGES:
+            raise ValueError(
+                f"GPT Image accepts at most {MAX_INPUT_IMAGES} reference images "
+                f"per request, got {len(paths)}"
+            )
         ids: list[int] = []
         dims: list[dict[str, int]] = []
         for p in paths:

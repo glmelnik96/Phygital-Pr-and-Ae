@@ -122,6 +122,24 @@ async def create_job(
     if isinstance(init_files, list):
         init_files = {"init_img": list(init_files)} if init_files else {}
 
+    # GPT Image (node 98) принимает максимум 16 reference-картинок на запрос
+    # (OpenAI gpt-image-1). Если больше — отдадим 422 здесь, а не ждать ~30s
+    # silent reject от OpenAI и счёт за провал. Workflow тоже валидирует
+    # (gpt_image.py:MAX_INPUT_IMAGES) — это второй пояс на случай прямого
+    # вызова в обход API.
+    if body.node_id == 98 and isinstance(init_files, dict):
+        imgs = init_files.get("images") or []
+        if isinstance(imgs, list) and len(imgs) > 16:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "too_many_images",
+                    "node_id": 98,
+                    "max": 16,
+                    "got": len(imgs),
+                },
+            )
+
     params = dict(body.params)
     if init_files:
         params["_init_files"] = init_files

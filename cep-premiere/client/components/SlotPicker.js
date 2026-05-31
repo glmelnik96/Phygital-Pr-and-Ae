@@ -12,12 +12,18 @@ function isVideoSlot(name) {
   return /^(ref_vid|video)$/.test(name);
 }
 
-export function SlotPicker({ name, kind, value, onPick, onClear }) {
+export function SlotPicker({ name, kind, max, value, onPick, onClear }) {
   const items = kind === 'array' ? (value || []) : (value ? [value] : []);
-  const canAddMore = kind === 'array' || items.length === 0;
+  // При наличии max'а для array-слота блокируем добавление, как только
+  // достигнут потолок — иначе юзер натолкнётся на 422 от sidecar'а после
+  // долгой загрузки. max приходит из slot_schema.GPT_IMAGE_META.slot_max.
+  const atCap = kind === 'array' && typeof max === 'number' && items.length >= max;
+  const canAddMore = (kind === 'array' && !atCap) || items.length === 0;
   const videoSlot = isVideoSlot(name);
   const typeLabel = videoSlot ? 'video' : 'image';
-  const arrayHint = kind === 'array' ? ' (you can add multiple)' : '';
+  const arrayHint = kind === 'array'
+    ? (typeof max === 'number' ? ` (up to ${max})` : ' (you can add multiple)')
+    : '';
   const friendly = slotLabel(name);
   const hint = slotHint(name);
 
@@ -41,7 +47,7 @@ export function SlotPicker({ name, kind, value, onPick, onClear }) {
       <div class="slot-head">
         <div class="slot-name-row">
           <span class="slot-name">${friendly}</span>
-          <span class="slot-kind" title=${`Expects a ${typeLabel} file${arrayHint}`}>· ${typeLabel}${kind === 'array' ? ' · multiple' : ''}</span>
+          <span class="slot-kind" title=${`Expects a ${typeLabel} file${arrayHint}`}>· ${typeLabel}${kind === 'array' ? (typeof max === 'number' ? ` · up to ${max}` : ' · multiple') : ''}</span>
         </div>
         ${hint ? html`<div class="slot-hint">${hint}</div>` : null}
       </div>

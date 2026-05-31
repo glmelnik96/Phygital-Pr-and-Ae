@@ -156,3 +156,52 @@ def test_post_jobs_no_init_files_no_marker(client):
     job_id = r.json()["job_id"]
     state = client.app.state.task_registry.get(job_id)
     assert "_init_files" not in state.params
+
+
+# ── GPT Image multi-image cap (V1.2) ────────────────────────────────────────
+# OpenAI gpt-image-1: до 16 reference-картинок. Sidecar отбивает превышение
+# 422 здесь, а не ждёт ~30s silent reject от OpenAI и счёт за провал.
+
+def test_post_jobs_gpt_image_rejects_over_16_images(client):
+    paths = [f"/tmp/img_{i:02d}.png" for i in range(17)]
+    r = client.post("/jobs", json={
+        "node_id": 98,
+        "params": {"prompt": "merge"},
+        "init_files": {"images": paths},
+    })
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["error"] == "too_many_images"
+    assert detail["max"] == 16
+    assert detail["got"] == 17
+
+
+def test_post_jobs_gpt_image_accepts_exactly_16_images(client):
+    paths = [f"/tmp/img_{i:02d}.png" for i in range(16)]
+    r = client.post("/jobs", json={
+        "node_id": 98,
+        "params": {"prompt": "merge"},
+        "init_files": {"images": paths},
+    })
+    assert r.status_code == 200
+
+
+def test_post_jobs_gpt_image_zero_images_ok(client):
+    """t2i путь: пустой 'images' — type='array' с пустым value, без cap."""
+    r = client.post("/jobs", json={
+        "node_id": 98,
+        "params": {"prompt": "white circle"},
+        "init_files": {"images": []},
+    })
+    assert r.status_code == 200
+
+
+def test_post_jobs_nano_banana_unaffected_by_gpt_image_cap(client):
+    """Cap'у подвержена только node 98; 94 (Nano Banana) с большим списком — ok."""
+    paths = [f"/tmp/img_{i:02d}.png" for i in range(20)]
+    r = client.post("/jobs", json={
+        "node_id": 94,
+        "params": {"prompt": "blend"},
+        "init_files": {"init_img": paths},
+    })
+    assert r.status_code == 200

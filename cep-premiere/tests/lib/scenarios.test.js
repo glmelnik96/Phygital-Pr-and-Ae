@@ -96,12 +96,14 @@ function submitDisabled(snap, { localBusy = false } = {}) {
 describe('cold boot', () => {
   beforeEach(() => { try { localStorage.clear(); } catch {} });
 
-  it('initial draft is Image / Nano Banana / edit', () => {
+  it('initial draft is Image / Nano Banana / generate (t2i)', () => {
+    // V1.2: cold-start = text→image, чтобы юзеру не нужно было сначала
+    // прикладывать референс (см. slot_schema.NANO_BANANA_META.scenarios).
     const { store } = makeFixture();
     const d = store.get().draft;
     expect(d.family).toBe('image');
     expect(d.model_id).toBe(94);
-    expect(d.scenario).toBe('edit');
+    expect(d.scenario).toBe('generate');
     expect(d.enhance_prompt).toBe(false);
     expect(d.enhanced_prompt).toBeNull();
   });
@@ -154,7 +156,7 @@ describe('family switching', () => {
     const d = store.get().draft;
     expect(d.family).toBe('image');
     expect(d.model_id).toBe(94);
-    expect(d.scenario).toBe('edit');
+    expect(d.scenario).toBe('generate');
   });
 
   it('setFamily to current family preserves model_id (no spurious reset)', () => {
@@ -436,7 +438,7 @@ describe('persistence + backfill', () => {
     saveDraftToStorage(d);
     const loaded = loadDraftFromStorage();
     expect(loaded).toMatchObject({
-      family: 'image', model_id: 94, scenario: 'edit',
+      family: 'image', model_id: 94, scenario: 'generate',
       enhance_prompt: true, enhanced_prompt: 'pre-enhanced',
     });
   });

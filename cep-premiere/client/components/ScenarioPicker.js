@@ -12,7 +12,8 @@ const SCENARIO_LABELS = {
   elements_prompt:        'Elements + prompt',
   elements_prompt_video:  'Elements + driving video',
   char_video_prompt:      'Character + driving video',
-  edit:                   'Image edit (init image + prompt)',
+  generate:               'Generate from prompt (text→image)',
+  edit:                   'Edit reference image(s) (image→image)',
 };
 
 export function ScenarioPicker({ scenarios, value, requiredSlots, onChange }) {

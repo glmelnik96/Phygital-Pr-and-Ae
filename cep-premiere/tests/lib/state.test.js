@@ -10,10 +10,13 @@ describe('state draft actions', () => {
     actions = createDraftActions(store);
   });
 
-  it('makeInitialDraft picks Nano Banana edit by default', () => {
+  it('makeInitialDraft picks Nano Banana generate (t2i) by default', () => {
+    // V1.2: дефолт = первый сценарий из meta.scenarios. Для Nano Banana
+    // и GPT Image это 'generate' (text→image), не требующий слотов —
+    // cold-start превращается в zero-friction t2i.
     const d = makeInitialDraft();
     expect(d.model_id).toBe(94);
-    expect(d.scenario).toBe('edit');
+    expect(d.scenario).toBe('generate');
     expect(d.slots).toEqual({});
     expect(d.prompt).toBe('');
   });

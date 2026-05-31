@@ -17,7 +17,7 @@ const PLACEHOLDER =
 // Любая правка исходного prompt'а или смена model_id сбрасывает preview
 // (см. setPrompt / setModel в lib/state.js) — UI это видит по
 // `isEnhancedFresh(draft) === false` и просит юзера re-enhance.
-export function PromptInput({ draft, actions, api }) {
+export function PromptInput({ draft, actions, api, imageRefs }) {
   const [enhancing, setEnhancing] = useState(false);
   const value = draft.prompt || '';
   const len = value.length;
@@ -33,9 +33,16 @@ export function PromptInput({ draft, actions, api }) {
     setEnhancing(true);
     actions.setEnhancedBusy(true);
     try {
+      // Прокидываем file_obj_id уже-загруженных image-слотов как референс
+      // для энхансера — Gemini Text увидит картинку и сошлётся на неё
+      // в i2i/i2v cценариях. Пустые list'ы (t2i / Topaz / video-only слоты)
+      // безопасны: backend трактует их как pure-text enhance.
+      const refs = imageRefs || { ids: [], dims: [] };
       const out = await api.enhancePrompt({
         node_id: draft.model_id,
         prompt: value,
+        init_img_ids: refs.ids,
+        init_img_dims: refs.dims,
       });
       actions.setEnhancedResult({
         prompt: value,

@@ -38,6 +38,31 @@ class EnhancerError(Exception):
     """Raised when enhancement failed (validation / Gemini / extraction)."""
 
 
+# Текст-обёртка для Gemini Text. Реальные инструкции — в .md-документе
+# (см. enhancer_docs.py + docs/enhancer_prompts/*.md), который мы прикрепляем
+# через documents=[doc_id]. Шейп взят 1:1 из Phygital-bot/workflows/brand_*.py:
+# фикс. text_prompt + content-truthful документ — единственный надёжный способ
+# заставить Gemini Text трактовать .md как system_prompt (без обёртки модель
+# часто просто описывает документ или игнорит его).
+#
+# Хвостовой `--- USER DRAFT PROMPT ---` маркер избавляет Gemini от иллюзии,
+# что юзер-промпт — это часть инструкций (мы наблюдали смесь, когда передаешь
+# просто `prompt=user_prompt`).
+ENHANCER_TEXT_PROMPT_TEMPLATE = (
+    "The attached document contains your complete instructions for this task "
+    "(role, output contract, model-specific rules, scenarios, what to avoid). "
+    "Read it and follow every rule.\n"
+    "\n"
+    "Output ONLY the enhanced prompt — no preamble, no quotes, no commentary, "
+    "no meta-text. The very first character of your reply is the first "
+    "character of the enhanced prompt.\n"
+    "\n"
+    "--- USER DRAFT PROMPT ---\n"
+    "{user_prompt}\n"
+    "--- END USER DRAFT PROMPT ---"
+)
+
+
 class EnhancerService:
     """Two-step prompt-enhancement pipeline.
 
@@ -132,6 +157,9 @@ class EnhancerService:
         init_img_ids: list[int],
         init_img_dims: list[dict[str, int]],
     ) -> GenerationJob:
+        wrapped_prompt = ENHANCER_TEXT_PROMPT_TEMPLATE.format(
+            user_prompt=user_prompt
+        )
         for attempt in (1, 2):
             doc_id = await get_enhancer_doc_for_node(self.client, node_id)
             wf = GeminiTextWorkflow(
@@ -140,7 +168,7 @@ class EnhancerService:
                 thinking_level=self.gemini_thinking_level,
             )
             job = await wf.run_text(
-                prompt=user_prompt,
+                prompt=wrapped_prompt,
                 init_img_ids=init_img_ids,
                 init_img_dims=init_img_dims,
                 document_ids=[doc_id],

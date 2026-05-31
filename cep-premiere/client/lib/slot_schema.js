@@ -10,8 +10,11 @@ export const NANO_BANANA_META = {
   node_id: 94,
   model: 'Nano Banana',
   slots: { init_img: 'array' },
-  scenarios: ['edit'],
-  scenario_slots: { edit: ['init_img'] },
+  // 'generate' = text→image (init_img пустой), 'edit' = image→image.
+  // Бэкенд (workflows/image_gen.py:88-93) принимает init_img:[] без проблем —
+  // т.е. workflow один, разница только в required-slot'е на UI-стороне.
+  scenarios: ['generate', 'edit'],
+  scenario_slots: { generate: [], edit: ['init_img'] },
   default_params: {
     model_name: 'v3_1',
     ratio: 'default',
@@ -35,8 +38,15 @@ export const GPT_IMAGE_META = {
   node_id: 98,
   model: 'GPT Image',
   slots: { images: 'array' },
-  scenarios: ['edit'],
-  scenario_slots: { edit: ['images'] },
+  // OpenAI gpt-image-1: до 16 reference-картинок за edit-запрос. Sidecar
+  // (gpt_image.MAX_INPUT_IMAGES) и router (/jobs 422) валидируют тоже —
+  // на UI это нужно чтобы юзер видел лимит ещё до клика по Submit.
+  slot_max: { images: 16 },
+  // Аналогично Nano Banana: 'generate' = t2i (images:[]), 'edit' = i2i.
+  // gpt_image.py:76-85 _images_input() авто-флипает type ↔ "array"/"image"
+  // в зависимости от пустоты ids.
+  scenarios: ['generate', 'edit'],
+  scenario_slots: { generate: [], edit: ['images'] },
   default_params: {
     version: 'v2',
     aspect_ratio: 'auto',
@@ -118,7 +128,12 @@ export function getSlotsForScenario({ videoNodes, nodeId, scenario }) {
   if (!meta) return [];
   const names = meta.scenario_slots[scenario];
   if (!names) return [];
-  return names.map(name => ({ name, kind: meta.slots[name] || 'scalar' }));
+  const maxMap = meta.slot_max || {};
+  return names.map(name => {
+    const slot = { name, kind: meta.slots[name] || 'scalar' };
+    if (maxMap[name] !== undefined) slot.max = maxMap[name];
+    return slot;
+  });
 }
 
 // «У этой ноды есть промпт?» — Topaz отвечает false, всё остальное true.

@@ -70,9 +70,9 @@ export function createApi({ fetch, baseUrl, getAuthHeaders }) {
       }),
     // POST /enhance — V1.2 prompt enhancer (preview-and-confirm flow).
     // Возвращает {enhanced_prompt, target_node_id, system_prompt_file}.
-    // init_img_ids/init_img_dims пока всегда пустые (V1.2 ограничение);
-    // V1.3: пробрасывать референс-картинку из активного image-slot для
-    // более точного i2i/i2v энхансинга.
+    // init_img_ids/init_img_dims — file_obj_id уже-загруженных image-слотов
+    // (PromptInput.collectImageRefs пробрасывает их сюда). Длины должны
+    // совпадать — Phygital img2img dimensions quirk.
     enhancePrompt: ({ node_id, prompt, init_img_ids = [], init_img_dims = [] }) =>
       request('/enhance', {
         method: 'POST',
