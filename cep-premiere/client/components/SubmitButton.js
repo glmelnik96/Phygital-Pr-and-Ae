@@ -1,10 +1,10 @@
 import { html } from '../lib/html.js';
 import { useState } from '../vendor/preact-hooks.module.js';
 import { validateDraft } from '../lib/validation.js';
-import { makeCostKey } from '../lib/state.js';
+import { makeCostKey, isEnhancedFresh } from '../lib/state.js';
 import { slotLabel } from '../lib/slot_labels.js';
 import { toast } from '../lib/toast.js';
-import { getNodeMeta } from '../lib/slot_schema.js';
+import { getNodeMeta, nodeHasPrompt } from '../lib/slot_schema.js';
 
 // Turn validation errors into one-line user hints. Same field codes the
 // validation lib emits, but with friendly slot/scenario names baked in.
@@ -43,7 +43,21 @@ export function SubmitButton({ snap, api, onSubmitted }) {
     typeof bal.value === 'number' &&
     freshCost > bal.value;
 
-  const disabled = busy || health.status !== 'online' || !v.ok || insufficientBalance;
+  // V1.2: ✨ Enhance toggle ON но preview ещё не сделан / устарел —
+  // блокируем submit. Иначе юзер удивится, что заплатил без энхансинга.
+  // Topaz (nodeHasPrompt=false) — enhance к нему не относится, не блокируем.
+  const meta = getNodeMeta({ videoNodes, nodeId: draft.model_id });
+  const enhanceRequired = draft.enhance_prompt && nodeHasPrompt(meta);
+  const enhanceFresh = isEnhancedFresh(draft);
+  const needsEnhancePreview = enhanceRequired && !enhanceFresh;
+
+  const disabled =
+    busy ||
+    health.status !== 'online' ||
+    !v.ok ||
+    insufficientBalance ||
+    needsEnhancePreview ||
+    draft.enhanced_busy;
 
   async function onClick() {
     setBusy(true); setErr(null);
@@ -58,9 +72,15 @@ export function SubmitButton({ snap, api, onSubmitted }) {
       // свой Python-default (который мог разойтись с тем, что показано в
       // UI — напр. seed=-1 в video_common vs 0 в build_payload signature).
       // Это симптом «aspect_ratio не передавался» на Mac после reload.
-      const meta = getNodeMeta({ videoNodes, nodeId: draft.model_id });
       const defaults = (meta && meta.default_params) || {};
-      const params = { ...defaults, ...draft.params, prompt: draft.prompt, scenario: draft.scenario };
+      // V1.2: если ✨ Enhance ON и preview свежий — отправляем
+      // enhanced_prompt (юзер мог его ещё подправить). Иначе — исходный.
+      // Topaz prompt вообще не нужен; для него draft.prompt==='' и бэк
+      // его проигнорирует.
+      const finalPrompt = (enhanceRequired && enhanceFresh)
+        ? (draft.enhanced_prompt || draft.prompt)
+        : draft.prompt;
+      const params = { ...defaults, ...draft.params, prompt: finalPrompt, scenario: draft.scenario };
       const out = await api.createJob({ node_id: draft.model_id, params, init_files });
       if (onSubmitted) onSubmitted(out.job_id);
     } catch (e) {
@@ -73,12 +93,15 @@ export function SubmitButton({ snap, api, onSubmitted }) {
 
   const label =
     busy ? 'Submitting…' :
+    draft.enhanced_busy ? 'Enhancing prompt…' :
+    needsEnhancePreview ? 'Click ✨ Enhance first' :
     insufficientBalance ? `Insufficient balance · ~${freshCost} credits` :
     freshCost != null ? `Generate · ~${freshCost} credits` :
     'Generate';
 
   const btnTitle =
     disabled && !v.ok ? 'Fix the errors below first' :
+    needsEnhancePreview ? 'Enhance toggle is ON — click ✨ Enhance to preview the enhanced prompt, then Submit.' :
     insufficientBalance ? `Need ${freshCost} credits, only ${bal.value} available` :
     undefined;
 

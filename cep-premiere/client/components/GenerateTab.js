@@ -1,5 +1,6 @@
 import { html } from '../lib/html.js';
 import { useEffect, useRef } from '../vendor/preact-hooks.module.js';
+import { FamilyTabs } from './FamilyTabs.js';
 import { ModelPicker } from './ModelPicker.js';
 import { ScenarioPicker } from './ScenarioPicker.js';
 import { PromptInput } from './PromptInput.js';
@@ -7,7 +8,10 @@ import { SlotList } from './SlotList.js';
 import { ParamsAccordion } from './ParamsAccordion.js';
 import { CostBar } from './CostBar.js';
 import { SubmitButton } from './SubmitButton.js';
-import { listAllNodes, getNodeMeta, getSlotsForScenario } from '../lib/slot_schema.js';
+import {
+  listNodesByFamily, getNodeMeta, getNodeFamily,
+  getSlotsForScenario, nodeHasPrompt,
+} from '../lib/slot_schema.js';
 import { saveDraftToStorage, createUploadActions } from '../lib/state.js';
 import { pickFilesFromDisk, readFileAsBlob, makeThumbDataURL } from '../lib/disk.js';
 import { host, hostQueued } from '../lib/host.js';
@@ -73,10 +77,15 @@ function friendlyHostError(e) {
 
 export function GenerateTab({ snap, actions, api, store, onSubmitted }) {
   const { draft, videoNodes, health } = snap;
-  const allNodes = listAllNodes({ videoNodes });
+  // Backfill для draft'ов из localStorage до V1.2 (где не было family).
+  // Без этого FamilyTabs упадёт в `value=undefined` и ни одна вкладка не
+  // будет активна, а ModelPicker отдаст пустой список.
   const meta = getNodeMeta({ videoNodes, nodeId: draft.model_id });
+  const family = draft.family || getNodeFamily(meta) || 'image';
+  const nodesInFamily = listNodesByFamily({ videoNodes, family });
   const scenarios = meta ? meta.scenarios : [];
   const slots = getSlotsForScenario({ videoNodes, nodeId: draft.model_id, scenario: draft.scenario });
+  const showPrompt = nodeHasPrompt(meta);
 
   useEffect(() => { saveDraftToStorage(draft); }, [JSON.stringify(draft)]);
 
@@ -344,12 +353,16 @@ export function GenerateTab({ snap, actions, api, store, onSubmitted }) {
 
   return html`
     <div class=${`generate ${disabled ? 'disabled' : ''}`}>
-      <${ModelPicker} nodes=${allNodes} value=${draft.model_id}
+      <${FamilyTabs} value=${family} disabled=${disabled}
+        onChange=${f => actions.setFamily(f, { videoNodes })} />
+      <${ModelPicker} nodes=${nodesInFamily} value=${draft.model_id}
         onChange=${id => actions.setModel(id, { videoNodes })} />
       <${ScenarioPicker} scenarios=${scenarios} value=${draft.scenario}
         requiredSlots=${slots}
         onChange=${s => actions.setScenario(s, { videoNodes })} />
-      <${PromptInput} value=${draft.prompt} onChange=${actions.setPrompt} />
+      ${showPrompt
+        ? html`<${PromptInput} draft=${draft} actions=${actions} api=${api} />`
+        : null}
       <${SlotList} slots=${slots} values=${draft.slots}
         onPick=${onPick} onClear=${onClear} />
       <${ParamsAccordion} defaults=${meta ? meta.default_params : {}}

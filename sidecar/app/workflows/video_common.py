@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 # ── Сценарии ──────────────────────────────────────────────────────────────
 class VideoScenario(str, Enum):
+    T2V = "t2v"                                # nodes 74 / 100 / 121: только text_prompt
     START_PROMPT = "start_prompt"
     START_END_PROMPT = "start_end_prompt"
     REF_PROMPT = "ref_prompt"                  # Seedance only
@@ -64,17 +65,21 @@ NODE_SLOTS: dict[int, dict[str, SlotKind]] = {
 
 # ── Какие слоты ОБЯЗАТЕЛЬНЫ в каждом сценарии (для каждой ноды) ──────────
 # Сценарии, которые на этой ноде не поддерживаются — отсутствуют в карте.
+# T2V — text-to-video, никаких init-файлов не требуется (пустой required list).
 SCENARIO_SLOTS: dict[tuple[int, VideoScenario], list[str]] = {
+    (74, VideoScenario.T2V):                    [],
     (74, VideoScenario.START_PROMPT):           ["init_img"],
     (74, VideoScenario.START_END_PROMPT):       ["init_img", "image_tail"],
     (74, VideoScenario.ELEMENTS_PROMPT):        ["element_1"],
     (74, VideoScenario.ELEMENTS_PROMPT_VIDEO):  ["element_1"],
 
+    (100, VideoScenario.T2V):                   [],
     (100, VideoScenario.START_PROMPT):          ["start_img"],
     (100, VideoScenario.START_END_PROMPT):      ["start_img", "end_frame"],
     (100, VideoScenario.REF_PROMPT):            ["ref_img"],
     (100, VideoScenario.REF_PROMPT_VIDEO):      ["ref_img", "ref_vid"],
 
+    (121, VideoScenario.T2V):                   [],
     (121, VideoScenario.START_PROMPT):          ["first_frame"],
     (121, VideoScenario.START_END_PROMPT):      ["first_frame", "last_frame"],
     (121, VideoScenario.ELEMENTS_PROMPT):       ["element_1"],

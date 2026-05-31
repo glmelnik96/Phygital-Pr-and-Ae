@@ -40,6 +40,20 @@
    побеждает. На первом poll'е логируем полный список keys ответа
    task_status — диагностика: точно ли бэкенд молчит.
 
+### V1.2-WIP — следующий sprint (расширение модельного парка)
+
+In-flight: добавление T2V на нодах 74/100/121 + Topaz Video Upscale (87)
++ GPT Image (98) + Prompt Enhancer через Gemini Text (72).
+
+**Источник истины по shape'ам и опциям нод:**
+👉 [`V1.2_T2V_TOPAZ_NOTES.md`](V1.2_T2V_TOPAZ_NOTES.md)
+
+Там — реальные payload'ы из manual recon
+(`sidecar/recon-captures/20260531-162221-t2v-manual/`), Topaz dropdowns
+(скриншоты + backend codes), версионная матрица Kling/Seedance и open
+questions (что ещё надо доcкозать UI'ем). Любая правка
+`video_common.py` / `topaz_upscale.py` начинается с прочтения этого файла.
+
 ### Подводный камень при тестировании
 
 Sidecar — **отдельный Python-процесс**, перезапуск Pr на него не влияет.

@@ -50,6 +50,7 @@ def build_app() -> FastAPI:
     from app.routers.assets import router as assets_router
     from app.routers.clips import router as clips_router
     from app.routers.account import router as account_router
+    from app.routers.enhance import router as enhance_router
     from app.services.session_bootstrap import SessionBootstrap
     from app.services.task_registry import TaskRegistry
     from app.services.job_runner import JobRunner
@@ -147,7 +148,7 @@ def build_app() -> FastAPI:
     # M11: бизнес-роуты доступны и без префикса (legacy для текущей панели),
     # и под /v1/ (для миграции внешних клиентов). Эти два include дают одинаковые
     # router-объекты на разных prefix'ах — состояние общее, тестируется параллельно.
-    for r in (auth_router, nodes_router, jobs_router, assets_router, clips_router, account_router):
+    for r in (auth_router, nodes_router, jobs_router, assets_router, clips_router, account_router, enhance_router):
         app.include_router(r)
         app.include_router(r, prefix="/v1")
     return app

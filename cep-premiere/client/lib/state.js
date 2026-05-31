@@ -41,15 +41,32 @@ export function makeCostKey(draft) {
 
 export const store = createStore(DEFAULT_STATE);
 
-import { getNodeMeta, getSlotsForScenario, NANO_BANANA_META } from './slot_schema.js';
+import {
+  getNodeMeta, getNodeFamily, getSlotsForScenario,
+  listNodesByFamily, NANO_BANANA_META,
+} from './slot_schema.js';
 
 export function makeInitialDraft() {
   return {
+    family: 'image',          // 'image' | 'video' | 'upscale' (V1.2 taxonomy)
     model_id: NANO_BANANA_META.node_id,
     scenario: NANO_BANANA_META.scenarios[0],
     prompt: '',
     slots: {},
     params: {},
+    // ── ✨ Enhance prompt (V1.2 preview-and-confirm flow) ──────────────
+    // enhance_prompt = пользователь нажал toggle ON
+    // enhanced_prompt = текст от sidecar /enhance (null до первого вызова)
+    // enhanced_busy = идёт сейчас вызов /enhance (UI блокирует Submit)
+    // enhanced_error = последняя ошибка (для UI; null после успеха)
+    // enhanced_for = {model_id, prompt} ключ, для которого был получен
+    //   enhanced_prompt; если draft.model_id/prompt поменяются — preview
+    //   считается stale (UI просит юзера re-enhance).
+    enhance_prompt: false,
+    enhanced_prompt: null,
+    enhanced_busy: false,
+    enhanced_error: null,
+    enhanced_for: null,
   };
 }
 
@@ -73,14 +90,53 @@ export function createDraftActions(store) {
   function setDraft(patch) {
     store.set(s => ({ draft: { ...s.draft, ...patch } }));
   }
+  // Сброс ✨ Enhance preview: вызывается на любой смене model_id/prompt,
+  // т.к. enhanced_prompt привязан к (model_id, prompt) парой и иначе
+  // юзер увидит preview для прошлой ноды/прошлого текста.
+  function resetEnhancedPreview() {
+    return {
+      enhanced_prompt: null, enhanced_busy: false,
+      enhanced_error: null, enhanced_for: null,
+    };
+  }
   return {
+    setFamily(family, { videoNodes }) {
+      // Берём первую ноду нового семейства как дефолт; если уже выбрана
+      // нода из этого family — не трогаем.
+      const draft = store.get().draft;
+      const curFamily = getNodeFamily(getNodeMeta({ videoNodes, nodeId: draft.model_id }));
+      if (curFamily === family) {
+        setDraft({ family });
+        return;
+      }
+      const candidates = listNodesByFamily({ videoNodes, family });
+      const first = candidates[0];
+      if (!first) {
+        // Семейство пустое (напр. video до того как /nodes/video подгрузился) —
+        // переключаем только family, model_id не трогаем, чтобы UI не сломался.
+        setDraft({ family });
+        return;
+      }
+      const scenario = first.scenarios ? first.scenarios[0] : null;
+      setDraft({
+        family,
+        model_id: first.node_id,
+        scenario,
+        slots: {}, params: {},
+        ...resetEnhancedPreview(),
+      });
+    },
     setModel(model_id, { videoNodes }) {
       const meta = getNodeMeta({ videoNodes, nodeId: model_id });
       const scenario = meta ? meta.scenarios[0] : null;
+      const family = getNodeFamily(meta) || store.get().draft.family;
       // Чистим params: у каждой ноды свой набор ключей; иначе aspect_ratio
       // от Seedance леется в Kling (где такого парама нет) и бэк его
       // тихо игнорирует, а на cost-preview видит «неизвестный ключ».
-      setDraft({ model_id, scenario, slots: {}, params: {} });
+      // family синхронизируется автоматически — если юзер выбрал в picker'е
+      // ноду другого семейства (теоретически невозможно при правильном
+      // фильтре в FamilyTabs, но защищаемся).
+      setDraft({ model_id, scenario, family, slots: {}, params: {}, ...resetEnhancedPreview() });
     },
     setScenario(scenario, { videoNodes }) {
       const draft = store.get().draft;
@@ -95,7 +151,11 @@ export function createDraftActions(store) {
       // (model_name/ratio/duration не зависят от scenario для 74/100/121).
       setDraft({ scenario, slots });
     },
-    setPrompt(prompt) { setDraft({ prompt }); },
+    setPrompt(prompt) {
+      // На любую правку промпта инвалидируем preview — иначе юзер увидит
+      // enhanced-текст, не соответствующий тому, что он набрал.
+      setDraft({ prompt, ...resetEnhancedPreview() });
+    },
     setSlot(name, value) {
       const draft = store.get().draft;
       setDraft({ slots: { ...draft.slots, [name]: value } });
@@ -110,7 +170,50 @@ export function createDraftActions(store) {
       const draft = store.get().draft;
       setDraft({ params: { ...draft.params, [name]: value } });
     },
+    // ── ✨ Enhance actions ───────────────────────────────────────────────
+    setEnhanceToggle(on) {
+      // Toggle ON без preview ничего не запускает — это делает PromptInput
+      // (он знает API instance, action чистый редьюсер).
+      setDraft({ enhance_prompt: !!on });
+    },
+    setEnhancedBusy(busy) {
+      setDraft({ enhanced_busy: !!busy, enhanced_error: null });
+    },
+    setEnhancedResult({ prompt, model_id, text }) {
+      setDraft({
+        enhanced_prompt: text,
+        enhanced_busy: false,
+        enhanced_error: null,
+        enhanced_for: { prompt, model_id },
+      });
+    },
+    setEnhancedError(message) {
+      setDraft({
+        enhanced_busy: false,
+        enhanced_error: message || 'enhance failed',
+      });
+    },
+    editEnhancedPrompt(text) {
+      // Юзер правит превью — оставляем enhanced_for как есть (preview
+      // всё ещё привязан к исходным (prompt, model_id)).
+      setDraft({ enhanced_prompt: text });
+    },
+    clearEnhancedPreview() {
+      setDraft(resetEnhancedPreview());
+    },
   };
+}
+
+// «Preview всё ещё свежий?» — true, если enhanced_prompt получен ровно
+// под текущие (model_id, prompt). UI использует, чтобы решить, можно ли
+// сабмитить с enhanced-текстом или надо сначала re-enhance.
+export function isEnhancedFresh(draft) {
+  if (!draft) return false;
+  if (!draft.enhanced_prompt || !draft.enhanced_for) return false;
+  return (
+    draft.enhanced_for.model_id === draft.model_id &&
+    draft.enhanced_for.prompt === draft.prompt
+  );
 }
 
 const ASSET_HISTORY_KEY = 'phygital-studio.assetHistory.v1';

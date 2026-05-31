@@ -1,4 +1,4 @@
-import { getNodeMeta, getSlotsForScenario } from './slot_schema.js';
+import { getNodeMeta, getSlotsForScenario, nodeHasPrompt } from './slot_schema.js';
 
 export function validateDraft({ videoNodes, draft }) {
   const errors = [];
@@ -11,7 +11,9 @@ export function validateDraft({ videoNodes, draft }) {
     errors.push({ field: 'scenario', message: `Scenario ${draft.scenario} not valid for ${meta.model}` });
   }
 
-  if (!draft.prompt || !draft.prompt.trim()) {
+  // Topaz (87) и любые будущие prompt-less ноды не валидируем по prompt'у —
+  // иначе Submit для upscale-family навсегда disabled («Write a prompt first»).
+  if (nodeHasPrompt(meta) && (!draft.prompt || !draft.prompt.trim())) {
     errors.push({ field: 'prompt', message: 'Prompt required' });
   }
 

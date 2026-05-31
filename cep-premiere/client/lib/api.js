@@ -68,6 +68,17 @@ export function createApi({ fetch, baseUrl, getAuthHeaders }) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ node_id, params, init_files: {} }),
       }),
+    // POST /enhance — V1.2 prompt enhancer (preview-and-confirm flow).
+    // Возвращает {enhanced_prompt, target_node_id, system_prompt_file}.
+    // init_img_ids/init_img_dims пока всегда пустые (V1.2 ограничение);
+    // V1.3: пробрасывать референс-картинку из активного image-slot для
+    // более точного i2i/i2v энхансинга.
+    enhancePrompt: ({ node_id, prompt, init_img_ids = [], init_img_dims = [] }) =>
+      request('/enhance', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ node_id, prompt, init_img_ids, init_img_dims }),
+      }),
     listJobs: (opts = {}) => {
       const qs = [];
       if (opts.status) qs.push(`status=${encodeURIComponent(opts.status)}`);
